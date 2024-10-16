@@ -1,0 +1,65 @@
+#################################################
+https://aws.amazon.com/corretto/
+https://github.com/corretto/
+#################################################3
+https://github.com/corretto/corretto-8/releases
+https://www.oracle.com/java/technologies/javase/javase-jdk8-downloads.html
+
+https://docs.aws.amazon.com/corretto/latest/corretto-8-ug/downloads-list.html
+https://docs.aws.amazon.com/corretto/latest/corretto-11-ug/downloads-list.html
+----
+Downlload for Linux:
+https://corretto.aws/downloads/latest/amazon-corretto-8-x64-linux-jdk.rpm
+
+https://corretto.aws/downloads/latest/amazon-corretto-11-x64-linux-jdk.rpm
+https://corretto.aws/downloads/latest/amazon-corretto-11-x86-linux-jdk.rpm
+
+
+Download for Windows:
+https://corretto.aws/downloads/latest/amazon-corretto-8-x64-windows-jdk.msi
+https://corretto.aws/downloads/latest/amazon-corretto-8-x86-windows-jdk.msi
+
+https://corretto.aws/downloads/latest/amazon-corretto-11-x64-windows-jdk.msi
+https://corretto.aws/downloads/latest/amazon-corretto-11-x86-windows-jdk.msi
+
+####################################################################################################
+###########################################
+Create repo database on staging server
+###########################################
+cd /repos/vpg-repo-nix/vpatches/corretto8
+ /usr/bin/createrepo --simple-md-filenames /repos/vpg-repo-nix/vpatches/corretto8
+
+cd /repos/vpg-repo-nix/vpatches/corretto11
+ /usr/bin/createrepo --simple-md-filenames /repos/vpg-repo-nix/vpatches/corretto11
+
+####################################################################################################
+Create latest files in repo:
+-------------------------------------
+[root@ip-10-202-29-68 vpg-repo-win]# ls /repos/vpg-repo-win/corretto*latest|sort|awk '{print "aws s3 cp "$1"  s3://vpg-repo-win/ --acl public-read"}'
+aws s3 cp /repos/vpg-repo-win/corretto11-jdkx64.latest  s3://vpg-repo-win/ --acl public-read
+aws s3 cp /repos/vpg-repo-win/corretto11-jdkx86.latest  s3://vpg-repo-win/ --acl public-read
+aws s3 cp /repos/vpg-repo-win/corretto8-jdkx64.latest  s3://vpg-repo-win/ --acl public-read
+aws s3 cp /repos/vpg-repo-win/corretto8-jdkx86.latest  s3://vpg-repo-win/ --acl public-read
+aws s3 cp /repos/vpg-repo-win/corretto8-jrex64.latest  s3://vpg-repo-win/ --acl public-read
+aws s3 cp /repos/vpg-repo-win/corretto8-jrex86.latest  s3://vpg-repo-win/ --acl public-read
+
+Copy installers from stage to repo:
+-----------------------------------
+aws s3 sync /repos/vpg-repo-win/corretto8/ s3://vpg-repo-win/corretto8/ --acl public-read
+aws s3 sync /repos/vpg-repo-win/corretto11/ s3://vpg-repo-win/corretto11/ --acl public-read
+
+aws s3 sync /repos/vpg-repo-nix/vpatches/corretto11/  s3://vpg-repo-nix/vpatches/corretto11/ --acl public-read
+aws s3 sync /repos/vpg-repo-nix/vpatches/corretto8/  s3://vpg-repo-nix/vpatches/corretto8/ --acl public-read
+
+
+##################################################
+Create soft links on repo
+##################################################
+
+aws s3api copy-object --copy-source vpg-repo-win/corretto11-jdkx64.latest --key corretto11-jdkx64.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/corretto11/amazon-corretto-11.0.22.7.1-windows-x64.msi --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/corretto11-jdkx86.latest --key corretto11-jdkx86.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/corretto11/amazon-corretto-11.0.22.7.1-windows-x86.msi --acl public-read
+
+aws s3api copy-object --copy-source vpg-repo-win/corretto8-jdkx64.latest --key corretto8-jdkx64.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/corretto8/amazon-corretto-8.402.08.1-windows-x64-jdk.msi --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/corretto8-jdkx86.latest  --key corretto8-jdkx86.latest  --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/corretto8/amazon-corretto-8.402.08.1-windows-x86-jdk.msi --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/corretto8-jrex64.latest --key corretto8-jrex64.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/corretto8/amazon-corretto-8.402.08.1-windows-x64-jre.msi --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/corretto8-jrex86.latest --key corretto8-jrex86.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/corretto8/amazon-corretto-8.402.08.1-windows-x86-jre.msi --acl public-read

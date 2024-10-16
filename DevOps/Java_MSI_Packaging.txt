@@ -1,0 +1,197 @@
+-------------------------------------------------------------------------------------------
+https://support.oracle.com
+Supported Java SE Downloads on MOS (Doc ID 1439822.2)
+https://www.oracle.com/java/technologies/downloads/   --> tar zip files
+MSI packaging server (windows ):  vpg-win2019-repomgr(10.231.35.202) 
+Repo staging server(Linux) : 10.202.29.68
+https://support.texthelp.com/help/converting-msi-and-cab-files-into-one-file
+-------------------------------------------------------------------
+
+1. Unzip the patch 
+example: C:\cto\java\Stage\Java8\p35531648_180391_WINNT
+Unpack the .exe file from the Windows Java binary zip file.
+
+2. Run the .exe file for the JDK or JRE as an administrator, depending on which one you are building by double-clicking on the file.
+
+3. When the Welcome screen comes up click on next and should not install the java.
+
+4. Go to file explorer and navigate to user home dir -> AppData\LocalLow\Oracle\Java\jre1.8.0_<version>_<bit> and copy the MSI and all cab files to directory C:\cto\java\Src
+
+Example :-
+Note: Make sure empty the target directory C:\cto\java\Src\ before copying the files
+
+Copy MSI & Cab files from:
+
+C:\Users\mohan\AppData\LocalLow\Oracle\Java\jdk1.8.0_391
+
+Copy to:
+
+C:\cto\java\Src\
+
+
+5. Go to the command line as administrator and Run the following command to create another msi under TARGETDIR:
+
+
+msiexec /a "C:\cto\java\Src\jdk1.8.0_39164.msi" TARGETDIR="C:\cto\java\merged" /passive
+
+You will find an (altered) copy of the MSI in the "C:\cto\java\merged" folder along with new folders containing all the files in the installation.
+
+6. Merge the extracted data back into the created MSI:
+
+Syntax: cscript PATH_OF_WIMAKCAB.VBS PATH_OF_NEW_MSI newcab.cab /C /U /E
+Example:
+cscript "C:\cto\java\winmakcab.vbs" "C:\cto\java\merged\jdk1.8.0_39164.msi"  s180391 /C /U /S /E
+
+7. Rename the file "C:\cto\java\merged\jdk1.8.0_39164.msi" with bit suffix as "C:\cto\java\merged\jdk1.8.0_391x64.msi" and copy to "c:\cto\java\"
+
+ Note: s180391 is the cab name given by us,You should now find that your MSI in the merged folder has increased in size as all the files have been embedded in it. 
+ 
+1. Similarly perform above steps for 86bit JDK
+
+msiexec /a "C:\cto\java\Src\jdk1.8.0_391.msi" TARGETDIR="C:\cto\java\merged" /passive
+cscript "C:\cto\java\winmakcab.vbs" "C:\cto\java\merged\jdk1.8.0_391.msi"  s180391 /C /U /S /E
+Rename the file "C:\cto\java\merged\jdk1.8.0_391.msi" with bit suffix as "C:\cto\java\merged\jdk1.8.0_391x86.msi" and copy to "c:\cto\java\"
+
+List files in S3
+##################
+ aws s3 ls s3://vpg-repo-win/*latest
+#######################################################
+Clone the Repo to local staging server, login as gecloud
+#######################################################
+ aws s3 sync s3://vpg-repo-win/ /repos/vpg-repo-win/
+ aws s3 sync s3://vpg-repo-nix/ /repos/vpg-repo-nix/
+
+######################################################################
+Copy all the java installers from windows server to staging server
+######################################################################
+
+C:\cto\java
+
+PS C:\cto\java> cat .\scpitm.ps1
+Function scpit{
+Param(
+[Parameter(Mandatory=$true)] [String]$Version
+)
+Write-Output " $Version  "
+
+scp -i C:\Users\admin\id_rsa "c:\cto\java\jdk1.8.0_$Version*x64.msi" gecloud@10.202.29.68:/repos/windows_10212023/javase8/JDK8x64/
+scp -i C:\Users\admin\id_rsa "c:\cto\java\jdk1.8.0_$Version*x86.msi" gecloud@10.202.29.68:/repos/windows_10212023/javase8/JDK8x86/
+scp -i C:\Users\admin\id_rsa "c:\cto\java\jre1.8.0_$Version*x64.msi" gecloud@10.202.29.68:/repos/windows_10212023/javase8/JRE8x64/
+scp -i C:\Users\admin\id_rsa "c:\cto\java\jre1.8.0_$Version*x86.msi" gecloud@10.202.29.68:/repos/windows_10212023/javase8/JRE8x86/
+scp -i C:\Users\admin\id_rsa "c:\cto\java\jre1.8.0_$Version*x86.tar.gz" gecloud@10.202.29.68:/repos/windows_10212023/src/javase8/JRE8x86
+scp -i C:\Users\admin\id_rsa "c:\cto\java\jre1.8.0_$Version*x64.tar.gz" gecloud@10.202.29.68:/repos/windows_10212023/src/javase8/JRE8x64
+}
+scpit
+PS C:\cto\java> .\scpitm.ps1
+
+scp -i C:\Users\admin\id_rsa  "c:\cto\java\jdk1.8.0_391*.msi" gecloud@10.202.29.68:/repos/stage/java/Java8/WIN
+
+scp -i C:\Users\admin\id_rsa  "c:\cto\java\jdk11.0.21x64.msi" gecloud@10.202.29.68:/repos/windows_10212023/javase11
+
+
+
+#######################################################
+Copy from staging server to repo server
+#######################################################
+Run under root user:
+aws s3 sync --delete /repos/windows_10212023/javase8 s3://vpg-repo-win/javase8 --acl public-read  ===> dont use delete unless it required
+
+ aws s3 sync  /repos/vpg-repo-win/javase8 s3://vpg-repo-win/javase8 --acl public-read
+ aws s3 sync  /repos/vpg-repo-win/javase11 s3://vpg-repo-win/javase11 --acl public-read
+ aws s3 sync  /repos/vpg-repo-win/src s3://vpg-repo-win/src --acl public-read
+
+##################################################
+Create soft links on repo
+##################################################
+Create Soft Links for msi files:
+
+aws s3api copy-object --copy-source vpg-repo-win/jdkx64.latest --key jdkx64.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/javase8/JDK8x64/jdk1.8.0_401x64.msi --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/jrex64.latest --key jrex64.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/javase8/JRE8x64/jre1.8.0_401x64.msi --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/jdkx86.latest --key jdkx86.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/javase8/JDK8x86/jdk1.8.0_401x86.msi --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/jrex86.latest --key jrex86.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/javase8/JRE8x86/jre1.8.0_401x86.msi --acl public-read
+
+aws s3api copy-object --copy-source vpg-repo-win/jdk11x64.latest --key jdk11x64.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/javase11/jdk11.0.22x64.msi --acl public-read
+
+
+Create Soft Links for exe files:
+
+aws s3api copy-object --copy-source vpg-repo-win/jre8x86exe.latest --key jre8x86exe.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/src/javase8/executables/jre-8u401-windows-i586.exe --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/jre8x64exe.latest --key jre8x64exe.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/src/javase8/executables/jre-8u401-windows-x64.exe --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/jdk8x86exe.latest --key jdk8x86exe.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/src/javase8/executables/jdk-8u401-windows-i586.exe --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/jdk8x64exe.latest --key jdk8x64exe.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/src/javase8/executables/jdk-8u401-windows-x64.exe --acl public-read
+aws s3api copy-object --copy-source vpg-repo-win/jdk11x64exe.latest --key jdk11x64exe.latest --bucket vpg-repo-win --website-redirect-location https://vpg-repo-win.s3.amazonaws.com/src/javase11/executables/jdk-11.0.22_windows-x64_bin.exe --acl public-read
+
+
+#####################################################################################################################################################################################################################################################
+Clone the linux repo to staging server, login as gecloud
+----------------------------------------------------
+aws s3 sync s3://vpg-repo-nix/  /repos/unix_10212023
+
+
+Copy the installers from windows server to staging server
+----------------------------------------------------------
+
+scp -i C:\Users\admin\id_rsa "C:\cto\java\Stage\Java8\linux\jdk-11.0.21_linux-x64_bin.rpm" gecloud@10.202.29.68:/repos/unix_10212023/vpatches/java11
+scp -i C:\Users\admin\id_rsa "C:\cto\java\Stage\Java8\linux\jdk-11.0.21_linux-x64_bin.tar.gz" gecloud@10.202.29.68:/repos/unix_10212023/src/java11
+
+scp -i C:\Users\admin\id_rsa "C:\cto\java\Stage\Java8\linux\jdk-8u391-linux-i586.rpm" gecloud@10.202.29.68:/repos/unix_10212023/vpatches/java8
+scp -i C:\Users\admin\id_rsa "C:\cto\java\Stage\Java8\linux\jdk-8u391-linux-i586.tar.gz" gecloud@10.202.29.68:/repos/unix_10212023/src/java8
+
+scp -i C:\Users\admin\id_rsa "C:\cto\java\Stage\Java8\linux\jdk-8u391-linux-x64.rpm" gecloud@10.202.29.68:/repos/unix_10212023/vpatches/java8
+scp -i C:\Users\admin\id_rsa "C:\cto\java\Stage\Java8\linux\jdk-8u391-linux-x64.tar.gz" gecloud@10.202.29.68:/repos/unix_10212023/src/java8
+
+###########################################
+Create repo database on staging server
+###########################################
+cd /repos/vpg-repo-nix/vpatches/java11
+ /usr/bin/createrepo --simple-md-filenames /repos/vpg-repo-nix/vpatches/java11
+cd /repos/vpg-repo-nix/vpatches/java8
+/usr/bin/createrepo --simple-md-filenames /repos/vpg-repo-nix/vpatches/java8
+
+
+#######################################################
+Copy from staging server to repo server
+#######################################################
+Run under root user:
+
+ aws s3 sync /repos/vpg-repo-nix/vpatches/java11 s3://vpg-repo-nix/vpatches/java11 --acl public-read
+ aws s3 sync /repos/vpg-repo-nix/vpatches/java8 s3://vpg-repo-nix/vpatches/java8 --acl public-read
+ aws s3 sync /repos/vpg-repo-nix/src s3://vpg-repo-nix/src --acl public-read
+
+
+
+##################################################################
+s3 bucket links
+####################################
+
+http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/jdkx64.latest
+http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/jrex64.latest
+http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/jdkx86.latest
+http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/jrex86.latest
+http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/jdk11x64.latest
+http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/src/javase8/JRE8x86/jre1.8.0_391x86.tar.gz
+http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/src/javase8/JRE8x64/jre1.8.0_391x64.tar.gz
+
+http://vpg-repo-nix.s3-website-us-east-1.amazonaws.com/vpatches/java8/jdk-8u391-linux-i586.rpm
+http://vpg-repo-nix.s3-website-us-east-1.amazonaws.com/vpatches/java8/jdk-8u391-linux-x64.rpm
+http://vpg-repo-nix.s3-website-us-east-1.amazonaws.com/vpatches/java11/jdk-11.0.21_linux-x64_bin.rpm
+http://vpg-repo-nix.s3-website-us-east-1.amazonaws.com/vpatches/src/java8/jdk-8u391-linux-i586.tar.gz
+http://vpg-repo-nix.s3-website-us-east-1.amazonaws.com/vpatches/src/java8/jdk-8u391-linux-x64.tar.gz
+http://vpg-repo-nix.s3-website-us-east-1.amazonaws.com/vpatches/src/java11/jdk-11.0.21_linux-x64_bin.tar.gz
+
+curl   http://10.231.35.188:80/vpg-repo-win/jdkx86.latest -o C:\vpg\jdkx86.latest.msi
+
+set https_proxy=https://PITC-Zscaler-Americas-Alpharetta3PR.proxy.corporate.ge.com:80
+set http_proxy=http://PITC-Zscaler-Americas-Alpharetta3PR.proxy.corporate.ge.com:80
+curl -L -v http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/jdkx64.latest -o C:\vpg\jdkx64.latest.msi
+wget -Proxy "http://PITC-Zscaler-Americas-Alpharetta3PR.proxy.corporate.ge.com:80" -Uri "http://vpg-repo-win.s3-website-us-east-1.amazonaws.com/jdkx64.latest" -Out "C:\vpg\jdkx64.latest.msi"
+
+
+
+
+
+
+
+
+
+
