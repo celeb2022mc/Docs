@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates a resource specifies the parameters for an AWS Batch job definition.
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15  
+  EnvValue:
+    Type: String
+    Description: Env instance of the resource.   
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  JobDefintionName:
+    Type: String
+    Description: "Enter a name of the job definition"   
+  Image:
+    Type: String
+    Description: "Enter Image"   
+  Attempts:
+    Type: String
+    Description: "Enter number of times to move a job to the RUNNABLE status."    
+  Vcpus:
+    Type: String
+    Description: "Enter number of Vcpus." 
+  Memory:
+    Type: String
+    Description: "Enter Memory Unit."
+    
+Resources: 
+  BatchProcessingJobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      Type: container
+      JobDefinitionName: !Sub '${UAI}_${AppName}_${EnvValue}_${JobDefintionName}'       
+      ContainerProperties:
+        Image: !Ref Image          
+        Vcpus: !Ref Vcpus
+        Memory: !Ref Memory
+      RetryStrategy:
+        Attempts: !Ref Attempts
+      Tags: 
+        uai: !Ref UAI
+        env: !Ref EnvValue
+        app: !Ref AppName
+
+
+  
+

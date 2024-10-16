@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'A stack for provisioning Listner Rule and Target Group'
+
+## History:
+  # 06-Jun-2024: Added healthcheck port and TargetType as inputs. added two targets and output for arn
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+  AppName:
+    Type: String
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  TargetGroupProtocol:
+    Type: String
+    AllowedValues:
+      - HTTP
+      - HTTPS
+    Default: HTTP
+  TargetGroupPort:
+    Type: Number
+    Description: 'Provide the Targate group Port, Default is 80.'
+    Default: 8080
+  HealthCheckPath:
+    Type: String
+    Description: Path that ALB pings for health check requests
+  PathName:
+    Type: String
+    Description: Provide the path name without /. This will help to identify TG for which service
+  HealthCheckPort:
+    Type: Number
+    Description: HealthCheckPort
+  TargetType:
+    Type: String
+    AllowedValues:
+      - ip
+      - instance
+      - lambda
+      - alb
+    Default: instance    
+  InstanceOne:
+    Type: String
+    Description: Id of first instance
+  InstanceTwo:
+    Type: String
+    Description: IId of second instance    
+Resources:
+  TargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Name: !Sub 'app-${UAI}-${AppName}-${Env}-${PathName}'
+      TargetType: !Ref TargetType
+      VpcId: !ImportValue "vpcid"
+      Protocol: !Ref TargetGroupProtocol
+      Port: !Ref TargetGroupPort
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 3
+      HealthCheckPort: !Ref HealthCheckPort
+      
+      Matcher:
+        HttpCode: 200-399
+      Targets:
+        - Id: !Ref InstanceOne
+          Port: !Ref TargetGroupPort
+        - Id: !Ref InstanceTwo
+          Port: !Ref TargetGroupPort
+      Tags:
+        - Key: uai
+          Value:
+            Ref: UAI
+        - Key: app
+          Value:
+            Ref: AppName
+        - Key: env
+          Value:
+            Ref: Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+Outputs:
+  TgARN:
+    Value: !Ref TargetGroup
+    Description: ARN for the Target Group

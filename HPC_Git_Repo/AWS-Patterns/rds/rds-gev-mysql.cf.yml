@@ -1,0 +1,619 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create a MySQL RDS DB Instance
+  
+
+Parameters:
+
+  AppInstance:
+    Type: String
+    AllowedPattern: ^[a-zA-Z0-9-]*$
+    Default: 'MySQLAppInst'
+    Description: Input the Application Instance Name. Accepts only lowercase, uppercase, number and hyphen
+
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+    Description: Choose relevant Environment.
+
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed. UAI starting sequence MUST be in uppercase.
+    ConstraintDescription: The UAI must be valid, but specified as 'UAI' in upper case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+    # Default: ''
+    # MinLength: 10
+    # MaxLength: 10
+
+  ApplicationCI:
+   Type: String
+   Description: The Asset ID for the Business Application CI from CMDB (ServiceNow) for this application
+   AllowedPattern: '^[0-9]*$'
+   Default: '1122334455'
+   ConstraintDescription: Value must be exactly 10 digits
+   MinLength: 10
+   MaxLength: 10
+
+  AdminUserName:
+    Type: String
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*{15}'
+    Description: Master username for the RDS
+    Default: 'superuser'
+
+  OwnerSSO:
+    Type: String
+    Description: SSO of the person who will be the CI owner (in CMDB/ServiceNow) for this new DB instance
+    Default: '123456789'
+    AllowedPattern: '^[0-9]*$'
+    ConstraintDescription: Value must be exactly 9 digits
+    MinLength: 9
+    MaxLength: 9
+
+  DatabaseName:
+    Type: String
+    Default: 'mysql01'
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '[a-zA-Z]{1}[a-zA-Z0-9]*{62}'
+    Description: The application database that should be created to host application data
+
+  DBInstanceIdentifier:
+    Type: String
+    Default: 'mysql01'
+    MinLength: 4
+    MaxLength: 11
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    Description: The DB instance identifier is case-insensitive, but is stored as all lowercase (as in "mydbinstance"). Must be 7-11 chars long. First character must be a letter. Can't contain two consecutive hyphens. Can't end with a hyphen.
+
+  DBEngine:
+    Type: String
+    AllowedValues:
+      - 'mysql'
+    Description: Choose an appropriate DB Engine.
+    Default: mysql
+
+  RDSInstanceClass:
+    Type: String
+    Default: db.t3.medium
+    Description: Choose an appropriate DB Instance type.
+
+  DBEngineVersion:
+    Type: String
+    Default: '8.0'
+    AllowedValues:
+      - '8.0'
+    Description: MySQL supported versions
+
+  StorageType:
+    Type: String
+    Default: 'General Purpose'
+    AllowedValues:
+      - 'General Purpose'
+      - 'Provisioned IOPS'
+  
+  AllocatedStorage:
+    Type: Number
+    MinValue: 20
+    Default: 20
+    Description: Specify database storage in GiB. Must be greater than 20GiB for General Purpose and 100 GiB for Provisioned IOPS.
+    ConstraintDescription: Must be greater than 20GiB for General Purpose and 100 GiB for Provisioned IOPS.
+
+  #Changes done for add-on DB Service
+  ProvisionedIOPS:
+    Type: Number
+    MinValue: 1000
+    Default: 1000
+    Description: MySQL supports 1000-80000 IOPS.
+    ConstraintDescription: Must be a number greater than 1000.
+  
+  MultiAZDeployment:
+    Description: "Support Multi-AZ for HighAvailability?"
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    ConstraintDescription: must be true or false.
+
+  ParameterGroup:
+    # This parameter is intended for usage when apps require a particular Parameter Group to be set
+    # For the BrilliantYOU application, a parameter group shall be manually created, and its name passed to this input
+    Type: String
+    AllowedPattern: "^[a-zA-Z0-9-]*$"
+    ConstraintDescription: Must only consist of letters, digits, and hyphens
+    Description: Name of already created parameter group. Leave blank if unknown.
+    Default: ''
+
+  OptionGroup:
+    # This parameter is intended for usage when apps require a particular Option Group to be set, that 
+    # is not part of the Compliance Standards
+    Type: String
+    AllowedPattern: "^[a-zA-Z0-9-]*$"
+    ConstraintDescription: Must only consist of letters, digits, and hyphens
+    Description: Name of already created option group. Leave blank if unknown.
+    Default: ''
+
+  #Changes done for add-on DB Service
+  ConnectionEncryption:
+    Type: String
+    Default: 'SSL'
+    Description: Select SSL to Encrypt a connection to Database.
+    AllowedValues:
+      - 'SSL'
+
+  SourceSG:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^sg-[0-9a-f]*$'
+    Description: Optional. Security Group id of the upstream appserver from which to allow incoming traffic. If blank, no app server is allowed incoming traffic. This has to be done with an additional stitch
+
+  KmsKeyId:
+    Type: String
+    Default: ''
+    Description: Optional, ARN of KMSKeyID. If provided by app team, it must have read perms for dba-fed/ db-devops-fed roles and this is must 
+
+  FreeSpaceThreshold:
+    Type: Number
+    MinValue: 2
+    MaxValue: 10 
+    Default: 4
+    Description: Size (in Bytes) for threshold for storage alarm trigger
+
+  ApplicationSupportEmail:
+    Type: String
+    Default: 'support@ge.com'
+    Description: Email ID of application support where all the alerts will be sent, regarding instance health
+    AllowedPattern: '^[a-zA-Z0-9.-_]*@ge.com$'
+
+  CertificateIdentifier:
+    Type: String
+    Default: rds-ca-rsa4096-g1
+    AllowedValues:
+      - rds-ca-rsa4096-g1
+      - rds-ca-ecc384-g1
+      - rds-ca-rsa2048-g1
+    Description: Certificates to be used for SSL/TLS communication
+
+
+Conditions:
+  HasSourceSG: !Not [!Equals [!Ref SourceSG, '']]
+  ConditionKmsKeyId: !Not [!Equals [!Ref 'KmsKeyId', '']]
+  HasParameterGroup: !Not [!Equals [!Ref 'ParameterGroup', '']]
+  HasOptionGroup: !Not [!Equals [!Ref 'OptionGroup', '']]
+  #Changes done for add-on DB Service
+  ConfigureProvisionedIOPS: !Equals [!Ref StorageType, 'Provisioned IOPS']
+
+  #isUpDownScheduleNull: !Equals [!Ref UpDownSchedule, '']
+  isPrdEnv: !Equals [ !Ref Env, 'prd' ]
+  # isNoSSL:  !Equals [!Ref ConnectionEncryption, 'NoSSL']
+  # NoSSLSourceSG: !And [ !Condition HasSourceSG, !Condition isNoSSL ]
+
+Mappings:
+
+  
+  #Changes done for add-on DB Service
+  SSLPortMap:
+    'postgres':
+      SSL: 2483
+      NoSSL: 5432
+      short: pg
+    'oracle-ee':
+      SSL: 2484
+      NoSSL: 1521
+      short: or
+    'oracle-se1':
+      SSL: 2484
+      NoSSL: 1521
+      short: or
+    'oracle-se2':
+      SSL: 2484
+      NoSSL: 1521
+      short: or
+    'mysql':
+      SSL: 2485
+      NoSSL: 3306
+      short: my
+    'sqlserver-ee':
+      SSL: 2486
+      NoSSL: 1433
+      short: ms
+    'sqlserver-ex':
+      SSL: 2486
+      NoSSL: 1433
+      short: ms
+    'sqlserver-se':
+      SSL: 2486
+      NoSSL: 1433 
+      short: ms 
+    'sqlserver-web':
+      SSL: 2486
+      NoSSL: 1433
+      short: ms
+  #gs-pw-change Removed Business input parameter as it this value will be imported from pre-requiste template as per each guardrail environment
+
+  InstanceMapping:
+    # Commenting to remove Business from Prov Code
+    # Business:
+    #   GasPower: gpw
+    #   Renewables: rnw
+    #   Nuclear: nucl
+    #   SteamPower: stmp
+    #   PowerConversion: pwc
+    # DBSupportTeam:
+    #   GasPower: gas-power-dba-team
+    #   Renewables: renewable-dba-team
+    #   Nuclear: nuclear-dba-team
+    #   SteamPower: steam-power-dba-team
+    #   PowerConversion: power-conversion-dba-team
+    Environment:
+      dev: d
+      qa: q
+      lab: l
+      stg: s
+      prd: p
+      dr: dr
+
+  ParamsGroupsMap:
+     '8.0':
+       prd: 'gev-dba:rds:parametergroups:mysql:prod:80'
+       rest: 'gev-dba:rds:parametergroups:mysql:non-prod:80'
+
+  OptionsGroupsMap:
+     '8.0':
+       prd: 'gev-dba:rds:optiongroups:mysql:prod:80'
+       rest: 'gev-dba:rds:optiongroups:mysql:non-prod:80'
+
+Resources:
+  
+  # RDSAdminUserSecret:
+  #   Type: AWS::SecretsManager::Secret
+  #   Properties:
+  #     Name: !Join [ "", [ /dba/, !Sub "${DBEngine}", !Sub "/${UAI}/${AppInstance}/", "gev-", !FindInMap [ InstanceMapping, Business, !Ref Business ], !FindInMap [ SSLPortMap, !Ref DBEngine, 'short' ], !FindInMap [ InstanceMapping, Environment, !Ref Env ], "-", !Ref DBInstanceIdentifier, "/admin-user" ]]
+  #     Description: !Join ["", ['Admin user credentials for RDS ', !FindInMap [ InstanceMapping, Business, !Ref Business ], !FindInMap [ SSLPortMap, !Ref DBEngine, 'short' ], !FindInMap [ InstanceMapping, Environment, !Ref Env ], "-", !Ref DBInstanceIdentifier]]
+  #     KmsKeyId: 'alias/aws/sns'
+  #     # KmsKeyId: !ImportValue 'gev-dba:kms:rds-secrets:arn'
+  #     GenerateSecretString:
+  #       SecretStringTemplate: !Join 
+  #         - ''
+  #         - - '{"username":"'
+  #           - !Ref AdminUserName
+  #           - '"}'
+  #       GenerateStringKey: "password"
+  #       PasswordLength: 18
+  #       ExcludePunctuation: false
+  #       IncludeSpace: false
+  #       #ExcludeCharacters: '"@/&,;^*-.<>%`\'
+  #       #ExcludeCharacters: '\()&%*+,-./"><:;=?@[]^_`{|}~ ' #'"@/&,;^*-.<>%!`\'
+  #       #ExcludeCharacters: "' ( ) & % * + , - . / \ \" > < : ; = ? @ [ \ ] ^ _ \` { | } ~"
+  #       ExcludeCharacters: '! " % & \'' ( ) * + , - . \ / : ; < = > ? @ [ \ ] ^ _ ` { | } ~' #Only special characters # and $ are included as part of password
+  #       RequireEachIncludedType: true
+  #     Tags:
+  #       - Key: uai
+  #         Value: !Ref 'UAI'
+  #       - Key: DBInstanceIdentifier
+  #         Value: !Join ["", ["gev-", !FindInMap [InstanceMapping, Business, !Ref Business], !FindInMap [ SSLPortMap, !Ref DBEngine, 'short' ], !FindInMap [ InstanceMapping, Environment, !Ref Env ], "-", !Ref 'DBInstanceIdentifier' ]]
+  #       - Key: support-group
+  #         Value: dig-tech-cts-cloud-db-support-team
+  #       - Key: db-support-team
+  #         Value: !FindInMap [InstanceMapping, DBSupportTeam, !Ref Business]
+
+  RDSAdminUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Join [ "", [ /dba/, !Sub "${DBEngine}", !Sub "/${UAI}/${AppInstance}/", "gev-", !FindInMap [ SSLPortMap, !Ref DBEngine, 'short' ], !FindInMap [ InstanceMapping, Environment, !Ref Env ], "-", !Ref DBInstanceIdentifier, "/admin-user" ]]
+      Description: !Join ["", ['Admin user credentials for RDS ', "gev-", !FindInMap [ SSLPortMap, !Ref DBEngine, 'short' ], !FindInMap [ InstanceMapping, Environment, !Ref Env ], "-", !Ref DBInstanceIdentifier]]
+      # KmsKeyId: !ImportValue 'gp-dba:kms:rds-secrets:arn'
+      GenerateSecretString:
+        SecretStringTemplate: !Join 
+          - ''
+          - - '{"username":"'
+            - !Ref AdminUserName
+            - '"}'
+        GenerateStringKey: "password"
+        PasswordLength: 18
+        ExcludePunctuation: false
+        IncludeSpace: false
+        #ExcludeCharacters: '"@/&,;^*-.<>%`\'
+        #ExcludeCharacters: '\()&%*+,-./"><:;=?@[]^_`{|}~ ' #'"@/&,;^*-.<>%!`\'
+        #ExcludeCharacters: "' ( ) & % * + , - . / \ \" > < : ; = ? @ [ \ ] ^ _ \` { | } ~"
+        ExcludeCharacters: '! " % & \'' ( ) * + , - . \ / : ; < = > ? @ [ \ ] ^ _ ` { | } ~' #Only special characters # and $ are included as part of password
+        RequireEachIncludedType: true
+      Tags:
+        - Key: uai
+          Value: !Ref 'UAI'
+        - Key: DBInstanceIdentifier
+          Value: !Join ["", ["gev-", !FindInMap [ SSLPortMap, !Ref DBEngine, 'short' ], !FindInMap [ InstanceMapping, Environment, !Ref Env ], "-", !Ref 'DBInstanceIdentifier' ]]
+        - Key: support-group
+          Value: dig-tech-cts-cloud-db-support-team
+        - Key: gev-sub-business
+          Value: !ImportValue "business-name"
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+
+  DBSERVER:
+    Type: AWS::RDS::DBInstance
+    # DependsOn: [ RDSAdminUserSecret ]
+    DeletionPolicy: Snapshot
+    Properties:
+      CACertificateIdentifier: !Ref CertificateIdentifier
+      StorageEncrypted: true
+      # DBSnapshotIdentifier: !If [ConditionCreateFromSnapshot, !Ref 'SnapshotIdentifier', !Ref 'AWS::NoValue']
+      BackupRetentionPeriod: !If [isPrdEnv, 35, 7] #Backup retention period for Prod is 35 days and for non-prod it's 7 days.
+      AutoMinorVersionUpgrade: !If [isPrdEnv, false, true] #Enabled for all Non-prod environments
+      DeleteAutomatedBackups: false #!If [isPrdEnv, false, true]
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      # If no KMSKey provided, make RDS pick the AWS managed KMS keys, by default
+      PerformanceInsightsKMSKeyId: !If [ConditionKmsKeyId, !Ref 'KmsKeyId', 'alias/aws/rds' ]
+      CopyTagsToSnapshot: true
+      DBInstanceClass: !Ref 'RDSInstanceClass'
+      DBName: !Ref DatabaseName
+      DBInstanceIdentifier:  !Join ["", ["gev-", !FindInMap [ SSLPortMap, !Ref DBEngine, 'short' ], !FindInMap [ InstanceMapping, Environment, !Ref Env ], "-", !Ref 'DBInstanceIdentifier' ]]
+      OptionGroupName: !If
+        - HasOptionGroup
+        - !Ref OptionGroup
+        - !If [isPrdEnv, "Fn::ImportValue": !FindInMap [ OptionsGroupsMap, !Ref DBEngineVersion, 'prd'], "Fn::ImportValue": !FindInMap [ OptionsGroupsMap, !Ref DBEngineVersion, 'rest']]
+      DBParameterGroupName: !If
+        - HasParameterGroup
+        - !Ref ParameterGroup
+        - !If [isPrdEnv, "Fn::ImportValue": !FindInMap [ ParamsGroupsMap, !Ref DBEngineVersion, 'prd'], "Fn::ImportValue": !FindInMap [ ParamsGroupsMap, !Ref DBEngineVersion, 'rest']]
+      DBSubnetGroupName: !ImportValue 'db-subnetgroup'
+      Port: !FindInMap [ SSLPortMap, !Ref DBEngine, !Ref ConnectionEncryption]
+      Engine: !Ref 'DBEngine'
+      EngineVersion: !Ref 'DBEngineVersion'
+      MultiAZ: !Ref 'MultiAZDeployment'
+      LicenseModel: 'general-public-license'
+      #Changes done for add-on DB Service
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSAdminUserSecret, ':SecretString:password}}' ]]
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSAdminUserSecret, ':SecretString:username}}' ]] 
+      StorageType: !If [ ConfigureProvisionedIOPS, 'io2', 'gp2' ]
+      AllocatedStorage: !Ref 'AllocatedStorage'
+      Iops: !If [ ConfigureProvisionedIOPS, !Ref 'ProvisionedIOPS', !Ref 'AWS::NoValue' ]
+      KmsKeyId: !If [ConditionKmsKeyId, !Ref 'KmsKeyId', 'alias/aws/rds']
+      Tags:
+        - Key: uai
+          Value: !Ref 'UAI'
+        - Key: app
+          #Value: !Ref 'AppName'
+          Value: !Ref AppInstance
+        - Key: assetid
+          Value: !Ref 'ApplicationCI'
+        - Key: env
+          Value: !Ref 'Env'
+        # - Key: role
+        #   Value: 'db'
+        - Key: ApplicationSupportGroup
+          Value: !Ref ApplicationSupportEmail
+        - Key: OwnerSSO
+          Value: !Ref 'OwnerSSO'
+        - Key: sm-name
+          Value: !Ref RDSAdminUserSecret
+        # Added database support tag for add-on Database Service
+        - Key: support-group
+          Value: dig-tech-cts-cloud-db-support-team
+        - Key: gev-sub-business
+          Value: !ImportValue "business-name"
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+      VPCSecurityGroups:
+        - !ImportValue "Vernova-Base-RDS-SG"
+        - !Ref DBStdSG
+  
+  
+  SecretRDSInstanceAttachmentForMaster:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    # DependsOn: [DBSERVER]
+    Properties:
+      SecretId: !Ref RDSAdminUserSecret
+      TargetId: !Ref DBSERVER
+      TargetType: AWS::RDS::DBInstance
+
+  # Database Security Group
+  DBStdSG:
+    Type: AWS::EC2::SecurityGroup
+    #Condition: CreateNewSG
+    Properties:
+      GroupName: !Sub "${AppInstance}-${UAI}-db-std-SG"
+      #GroupDescription: !Sub 'SG for ${AppName} Application ${AppInstance} Application Instance'
+      GroupDescription: !Sub 'DB SG for ${AppInstance} ${UAI} app'
+      # V2.0 Removed VPCAlias input parameter and imported gr-db database vpc for guardrail from prerequisite template
+      VpcId: !ImportValue 'vpcid'
+      SecurityGroupIngress: []
+      SecurityGroupEgress:
+        - CidrIp: 127.0.0.1/32
+          IpProtocol: "-1"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AppInstance}-${UAI}-db-std-SG"
+        - Key: uai
+          Value: !Ref 'UAI'
+        - Key: app
+          #Value: !Ref 'AppName'
+          Value: !Ref AppInstance
+        - Key: assetid
+          Value: !Ref 'ApplicationCI'
+        - Key: env
+          Value: !Ref 'Env'
+        - Key: role
+          Value: 'db'
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  DBStdSGInboundRuleDBABaseSG:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Rule to allow traffic DBA data mover 
+      IpProtocol: tcp
+      FromPort: !FindInMap [ SSLPortMap, !Ref DBEngine, 'SSL' ]
+      ToPort: !FindInMap [ SSLPortMap, !Ref DBEngine, 'SSL' ]
+      GroupId: !GetAtt DBStdSG.GroupId
+      SourceSecurityGroupId: !ImportValue 'Vernova-Base-RDS-SG'
+
+  DBStdSGInboundRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasSourceSG
+    Properties:
+      IpProtocol: tcp
+      FromPort: !FindInMap [ SSLPortMap, !Ref DBEngine, 'SSL' ]
+      ToPort: !FindInMap [ SSLPortMap, !Ref DBEngine, 'SSL' ]
+      GroupId: !GetAtt DBStdSG.GroupId
+      SourceSecurityGroupId: !If [ HasSourceSG, !Ref SourceSG, !Ref 'AWS::NoValue']
+
+  DatabaseEventSubscription:
+    #Condition: isPrdEnv
+    Type: 'AWS::RDS::EventSubscription'
+    Properties:
+      EventCategories:
+      - availability
+      - 'configuration change'
+      - creation
+      - deletion
+      - failover
+      - failure
+      - 'low storage'
+      - maintenance
+      - notification
+      - 'read replica'
+      - restoration
+      - recovery
+      SnsTopicArn: !ImportValue 'gev-dba:snstopic:generic'
+      SourceIds: [!Ref DBSERVER]
+      SourceType: 'db-instance'
+      Tags:
+        - Key: 'Name'
+          Value: !Sub "${UAI}_${DBInstanceIdentifier}_${Env}_EventSubscription"
+        - Key: 'env'
+          Value: !Sub ${Env}
+        - Key: 'uai'
+          Value: !Sub '${UAI}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created_by'
+          Value: 'gev-dba'
+        - Key: 'Description'
+          Value: 'Event subscription for the RDS'
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  AppNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: 'Oracle SNS Topic for Alarm Notifications to Application team'
+      TopicName: !Sub "${UAI}_${DBInstanceIdentifier}_${Env}_SNSTopic"
+      KmsMasterKeyId: 'alias/aws/sns'
+      # KmsMasterKeyId: !If [ConditionKmsKeyId, !Ref 'KmsKeyId', !ImportValue 'gev-dba:kms:rds-misc:arn']
+      Tags:
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${UAI}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created_by'
+          Value: 'gev-dba'
+        - Key: 'Description'
+          Value: 'SNS topic alarm notification to application and DBA team'
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  AppNotifSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AppNotificationTopic
+      Protocol: email
+      Endpoint: !Ref ApplicationSupportEmail
+
+  ## Alarm Configuration
+  alarmHighCPU:
+    Type: AWS::CloudWatch::Alarm
+    Condition: isPrdEnv
+    # DependsOn: [DBSERVER]
+    Properties:
+      AlarmDescription: CPU Utilization HIGH on RDS Instance  
+      ActionsEnabled: 'true'
+      AlarmActions:
+        - !Ref AppNotificationTopic
+        - !ImportValue 'gev-dba:snstopic:generic'
+      MetricName: CPUUtilization
+      Namespace: AWS/RDS
+      Statistic: Average
+      Period: '60'
+      EvaluationPeriods: '1' 
+      Threshold: '80.0'      
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value:
+          Ref: DBSERVER
+
+  alarmHighMemory:
+    Type: AWS::CloudWatch::Alarm
+    Condition: isPrdEnv
+    # DependsOn: [DBSERVER]
+    Properties:
+      AlarmDescription: CPU Utilization HIGH on RDS Instance  
+      ActionsEnabled: 'true'
+      AlarmActions:
+        - !Ref AppNotificationTopic
+        - !ImportValue 'gev-dba:snstopic:generic'
+      MetricName: CPUUtilization
+      Namespace: AWS/RDS
+      Statistic: Average      
+      Period: '900' 
+      EvaluationPeriods: '2'
+      Threshold: 512000000
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value:
+          Ref: DBSERVER
+        
+  # Resource: alarmDBLowFreeSpace      
+  alarmDBLowFreeSpace:
+    Type: AWS::CloudWatch::Alarm
+    # DependsOn: [DBSERVER]
+    Properties:
+      AlarmActions:
+        - !Ref AppNotificationTopic
+        - !ImportValue 'gev-dba:snstopic:generic'
+      AlarmDescription: Average database free storage LOW space left in RDS instance
+      ActionsEnabled: 'true'
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Dimensions:
+      - Name: DBInstanceIdentifier
+        Value:
+          Ref: DBSERVER
+      EvaluationPeriods: '1'
+      MetricName: FreeStorageSpace
+      Namespace: AWS/RDS
+      Period: '900'
+      Statistic: Maximum
+      Threshold: !Ref FreeSpaceThreshold
+      Unit: Gigabytes
+
+Outputs:
+
+  RDSEndpoint:
+    Description: RDS Instance Endpoint Details
+    Value: !GetAtt 'DBSERVER.Endpoint.Address'
+
+  RDSSecuritGroup:
+    #Condition: CreateNewSG
+    Description: SG id for this specific RDS instance
+    Value: !Ref DBStdSG
+    
+  RDSPort:
+    Description: The TCP port for the RDS instance
+    Value: !FindInMap [ SSLPortMap, !Ref DBEngine, 'SSL' ]

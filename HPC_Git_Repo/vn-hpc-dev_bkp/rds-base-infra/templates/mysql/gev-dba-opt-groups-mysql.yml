@@ -1,0 +1,103 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This stack creates the option groups for MySQL 
+
+
+Parameters:
+  uai:
+    Type: String
+    Description: The uai of the application being charged for usage.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in upper case followed by 7 digits
+    AllowedPattern: '^(uai|uai)[0-9]*$'
+    MinLength: 10
+    MaxLength: 10
+    Default: 'uai3064620'
+
+Resources:
+
+  rdsmysqlnonprod80:
+    Type: 'AWS::RDS::OptionGroup'
+    Properties:
+      EngineName: 'mysql'
+      MajorEngineVersion: 8.0
+      OptionGroupName: 'gev-dba-rds-opt-group-non-prod-mysql-80'
+      OptionGroupDescription: 'MySQL 8.0 Non-Prod Options Group'
+      OptionConfigurations:
+        -
+          OptionName: MARIADB_AUDIT_PLUGIN
+          OptionSettings:
+            -
+              Name: SERVER_AUDIT_FILE_ROTATIONS
+              Value: 50
+            -
+              Name: SERVER_AUDIT_EVENTS
+              Value: CONNECT
+            -
+              Name: SERVER_AUDIT_FILE_ROTATE_SIZE
+              Value: 524288
+            -
+              Name: SERVER_AUDIT_EXCL_USERS
+              Value: rdsadmin
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+
+  rdsmysqlprod80:
+    Type: 'AWS::RDS::OptionGroup'
+    Properties:
+      EngineName: 'mysql'
+      MajorEngineVersion: 8.0
+      OptionGroupName: 'gev-dba-rds-opt-group-prod-mysql-80'
+      OptionGroupDescription: 'MySQL Prod Options Group 8.0'
+      OptionConfigurations:
+        -
+          OptionName: MARIADB_AUDIT_PLUGIN
+          OptionSettings:
+            -
+              Name: SERVER_AUDIT_FILE_ROTATIONS
+              Value: 50
+            -
+              Name: SERVER_AUDIT_EVENTS
+              Value: CONNECT,QUERY,QUERY_DDL,QUERY_DML
+            -
+              Name: SERVER_AUDIT_FILE_ROTATE_SIZE
+              Value: 524288
+            -
+              Name: SERVER_AUDIT_EXCL_USERS
+              Value: rdsadmin
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+Outputs:
+ ## OPTION GROUPS
+ #  Note: Option groups are VPC-bound
+  
+  rdsmysqlnonprod80:
+    Description: "RDS Option Group that stores default auditing preferences for MySQL 80"
+    Value: !Ref rdsmysqlnonprod80
+    Export:
+      Name: 'gev-dba:rds:optiongroups:mysql:non-prod:80'
+
+  rdsmysqlprod80:
+    Description: "RDS Option Group that stores SOx auditing preferences for MySQL 80"
+    Value: !Ref rdsmysqlprod80
+    Export:
+      Name: 'gev-dba:rds:optiongroups:mysql:prod:80'

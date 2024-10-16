@@ -1,0 +1,50 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+
+  AppName:
+    Type: String
+    MaxLength: 25
+    MinLength: 3
+    Description: Name of the application, keep to 15 characters or less
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  ClusterInstance:
+    Type: String
+    Description: Application Cluster Instance
+
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "app-${UAI}-${AppName}-${Env}-${ClusterInstance}"
+      Tags: 
+      - Key: "name"
+        Value: !Sub "${UAI}-${AppName}-${Env}-${ClusterInstance}"
+      - Key: "uai"
+        Value: !Ref UAI
+      - Key: "app"
+        Value: !Ref AppName
+      - Key: "env"
+        Value: !Ref Env
+      - Key: Stack_ID
+        Value: !Sub ${AWS::StackId}
+      - Key: Stack_Name
+        Value: !Sub ${AWS::StackName}
+
+Outputs:
+  Clustername:
+    Description: ECS Cluster Name
+    Value: !Ref ECSCluster
+  ClusterArn:
+    Description: 'ECS Cluster ARN value'
+    Value: !GetAtt ECSCluster.Arn

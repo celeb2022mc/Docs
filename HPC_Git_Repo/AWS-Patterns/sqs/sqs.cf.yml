@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create SQS
+ 
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  QueueType:
+    Type: String
+    Description: Queue Type is FIFO
+    AllowedValues: 
+    - true
+    - false
+
+  QueueNameT:   
+    Type: String
+    Description: Standard Queue Name
+
+  QueueNameDLQ:   
+    Type: String
+    Description: DLQ Queue Name
+
+  DelaySeconds:
+    Type: Number
+    Description: The time in seconds that the delivery of all messages in the queue will be delayed
+    Default: 0
+
+  KmsDataKeyReusePeriodSeconds:
+    Type: Number
+    Description: The length of time in seconds that Amazon SQS can reuse a data key to encrypt or decrypt messages before calling KMS again
+    Default: 300
+
+  # KmsMasterKeyId:
+  #   Type: String
+  #   Description: The ID of an AWS Key Management Service (AWS KMS) key used for encryption of messages in the queue
+  #   Default: alias/aws/sqs
+
+  MaximumMessageSize:
+    Type: Number
+    Description: The maximum size of a message that can be sent to the queue, in bytes
+    Default: 262144
+
+  MessageRetentionPeriod:
+    Type: Number
+    Description: The length of time in seconds that Amazon SQS retains a message
+    Default: 345600
+
+  ReceiveMessageWaitTimeSeconds:
+    Type: Number
+    Description: The time in seconds for which a ReceiveMessage call will wait for a message to arrive
+    Default: 0
+
+  RedrivePolicyMaxReceiveCount:
+    Type: Number
+    Description: The maximum number of times a message is delivered to the source queue before being moved to the dead-letter queue
+    Default: 3
+
+  VisibilityTimeout:
+    Type: Number
+    Description: The length of time in seconds that a message received by a worker remains invisible to others
+    Default: 30
+
+Conditions: 
+    QueueName1 : !Equals [!Ref QueueType, true]
+
+Resources:
+  MyQueue:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: !If [QueueName1, !Sub "${UAI}-${AppName}-${Env}-${QueueNameT}.fifo" ,!Sub "${UAI}-${AppName}-${Env}-${QueueNameT}"]  
+      FifoQueue: !If [QueueName1, true,!Ref "AWS::NoValue"]
+      DelaySeconds: !Ref DelaySeconds
+#       KmsDataKeyReusePeriodSeconds: !Ref KmsDataKeyReusePeriodSeconds
+#       KmsMasterKeyId: !Ref KmsMasterKeyId
+      MaximumMessageSize: !Ref MaximumMessageSize
+      MessageRetentionPeriod: !Ref MessageRetentionPeriod
+      ReceiveMessageWaitTimeSeconds: !Ref ReceiveMessageWaitTimeSeconds
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MyQueueDLQ.Arn
+        maxReceiveCount: !Ref RedrivePolicyMaxReceiveCount
+      VisibilityTimeout: !Ref VisibilityTimeout
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+        - Key: app
+          Value: !Ref AppName
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+  MyQueueDLQ:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: !If [QueueName1, !Sub "${UAI}-${AppName}-${Env}-${QueueNameDLQ}.fifo" ,!Sub "${UAI}-${AppName}-${Env}-${QueueNameDLQ}"]  
+      FifoQueue: !If [QueueName1, true,!Ref "AWS::NoValue"]
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+        - Key: app
+          Value: !Ref AppName
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+
+Outputs:
+
+  QueueURL:
+    Description: Queue URL for standard queue
+    Value: !Ref MyQueue
+
+# Re try
+# Re try again . changes the wiz processor

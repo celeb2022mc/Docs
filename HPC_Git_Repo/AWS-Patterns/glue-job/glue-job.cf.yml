@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "AWS CloudFormation Template to create a Glue Job template"
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  AWSGlueJobRole:
+    Type: String
+    Description: Role for Glue Job
+
+  glueVersion:
+    Type: String
+    Description: Provide Latest Glue version
+
+  ArtifactBucketName:
+    Type: String
+    MinLength: "1"
+    Description: "Name of the S3 bucket in which the Marketing and Sales ETL scripts reside. Bucket is NOT created by this CFT."
+
+  ETLScriptsPrefix:
+    Type: String
+    MinLength: "1"
+    Description: "Location of the Glue job ETL scripts in S3."
+  
+  scriptName:
+    Type: String
+    MinLength: "1"
+    Description: "Name of the Glue job ETL scripts in S3. (Ex..test_process.py)"
+
+Resources:
+  Database:
+    Type: "AWS::Glue::Database"
+    Properties:
+      DatabaseInput:
+        Description: "Test database"
+        Name: !Sub "app-${UAI}-${AppName}-${Env}-db"
+      CatalogId: !Ref AWS::AccountId      
+
+  DataJob:
+    Type: "AWS::Glue::Job"
+    Properties:
+      Role: !Ref AWSGlueJobRole
+      Name: !Sub "app-${UAI}-${AppName}-${Env}-job"
+      GlueVersion: !Ref glueVersion
+      Command:
+        Name : glueetl
+        ScriptLocation: !Sub "s3://${ArtifactBucketName}/${ETLScriptsPrefix}/${scriptName}"
+      Description: "test"
+      Tags:
+        uai: !Ref UAI
+        app: !Ref AppName
+        env: !Ref Env  
+  
+
+
+

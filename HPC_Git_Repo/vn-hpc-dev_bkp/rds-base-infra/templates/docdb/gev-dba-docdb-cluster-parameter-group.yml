@@ -1,0 +1,72 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This stack creates the DocDB Cluster parameters groups that are neccessary for Docdb instance builds.
+
+Parameters:
+  uai:
+    Type: String
+    Description: The uai of the application being charged for usage.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in upper case followed by 7 digits
+    AllowedPattern: '^(uai|uai)[0-9]*$'
+    MinLength: 10
+    MaxLength: 10
+    Default: 'uai3064620'
+  
+
+Resources:
+  DocDBClusterParaGroup40:
+    Type: AWS::DocDB::DBClusterParameterGroup
+    Properties:
+      Description: DocDB 4.0 cluster parameter group
+      Family: docdb4.0
+      Name: gev-dba-cluster-para-group-prod-docdb-4
+      Parameters: 
+        audit_logs: enabled
+        tls: enabled
+        ttl_monitor: enabled
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created_by'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+  
+  DocDBClusterParaGroup50:
+    Type: AWS::DocDB::DBClusterParameterGroup
+    Properties:
+      Description: DocDB 450 cluster parameter group
+      Family: docdb5.0
+      Name: gev-dba-cluster-para-group-prod-docdb-5
+      Parameters: 
+        audit_logs: enabled
+        tls: enabled
+        ttl_monitor: enabled
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created_by'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+Outputs:
+  DocDCClusterParaGroup4:
+    Description: Cluster Parameter group for DocDB 4.0
+    Value: !Ref DocDBClusterParaGroup40
+    Export:
+      Name: 'gev-dba:docdb:cluster-parameter-group:prod:40'
+
+  DocDCClusterParaGroup5:
+    Description: Cluster Parameter group for DocDB 5.0
+    Value: !Ref DocDBClusterParaGroup50
+    Export:
+      Name: 'gev-dba:docdb:cluster-parameter-group:prod:50'

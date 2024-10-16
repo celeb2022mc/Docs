@@ -1,0 +1,6 @@
+AzName: AZ1
+SubnetName: "database-az1"
+SubnetCidrBlock: "10.244.49.0/27" 
+NaclExportName: "database-nacl"
+RouteTableExportName: "rt-PrivateId"
+SubnetType: Database

@@ -1,0 +1,7 @@
+MaintenanceWindowName: "Non-Prod-Vernova-Standard-Patching-Window"
+PatchGrpLinux: "Patch-App-NonPrdLinux"
+PatchGrpWindows: "Patch-App-NonPrdWindows"
+CronDefLinux: "cron(0 30 7 ? * SAT#1 *)"
+CronDefWindows: "cron(0 30 7 ? * SAT#3 *)"
+Env: "no-prd"
+uai: "uai3064620"

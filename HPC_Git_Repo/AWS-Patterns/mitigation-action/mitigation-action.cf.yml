@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Amazon Web Services IoT MitigationAction Template
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+
+  Env:
+    Type: String
+    Description: Env of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  RoleARN: 
+    Type: String
+    Description: ARN of the IAM Role SNS Topic for MITIGATION ACTION
+  TopicARN:
+    Type: String
+    Description: ARN of  SNS Topic for MITIGATION ACTION
+Resources:    
+  MitigationAction:
+    Type: AWS::IoT::MitigationAction
+    Properties:
+      ActionName: !Sub 'app-${UAI}_${AppName}_${Env}_Mitigateaction'
+      RoleArn: !Ref RoleARN
+      ActionParams:
+        PublishFindingToSnsParams:
+          TopicArn: !Ref TopicARN 
+      #  AddThingsToThingGroupParams: 
+      #    OverrideDynamicGroups: Boolean
+      #    ThingGroupNames: String
+      #  EnableIoTLoggingParams: 
+      #    LogLevel: String
+      #    RoleArnForLogging: String
+      #  ReplaceDefaultPolicyVersionParams:          
+      #    TemplateName: BLANK_POLICY
+      #  UpdateCACertificateParams: 
+      #    Action: DEACTIVATE
+      #  UpdateDeviceCertificateParams: 
+      #      Action: DEACTIVATE
+
+  
+      Tags:  
+      - Key: Name
+        Value: !Sub '${UAI}-${AppName}-Mitigateaction'
+      - Key: uai
+        Value:
+          Ref: UAI        
+      - Key: env
+        Value:
+          Ref: Env 
+      - Key: Stack_ID
+        Value: !Sub ${AWS::StackId}
+      - Key: Stack_Name
+        Value: !Sub ${AWS::StackName}

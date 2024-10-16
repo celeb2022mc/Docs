@@ -1,0 +1,35 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Web ACL - used for CloudFront distributions
+Resources:
+  CFIPSet:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      CaptchaConfig: 
+        ImmunityTimeProperty:
+          ImmunityTime: 300
+      ChallengeConfig: 
+        ImmunityTimeProperty:
+          ImmunityTime: 300
+      DefaultAction: 
+        Block: {}
+      Description: Imperva IP whitelisting WebACL for CloudFront distributions
+      Name: Imperva-WebACL-CloudFront
+      Rules: 
+        - Name: Allow-Imperva-IPs-IPv4
+          Action:
+            Allow: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: "Allow-Imperva-IPs-IPv4"
+          Priority: 0
+          Statement:
+            IPSetReferenceStatement:
+              Arn: !ImportValue CloudFrontWAFIPSet
+      Scope: CLOUDFRONT
+      VisibilityConfig: 
+        CloudWatchMetricsEnabled: true
+        MetricName: Imperva-WAF-CloudFront
+        SampledRequestsEnabled: true
+

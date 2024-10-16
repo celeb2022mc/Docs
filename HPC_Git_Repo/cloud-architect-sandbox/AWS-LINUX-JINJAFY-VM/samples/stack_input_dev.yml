@@ -1,0 +1,318 @@
+#template_dir: /usr/local/app/ManagedComponents-Nexus/ManagedComponents
+# template_dir: .
+
+common:
+  UAI: uai3064620
+  ENV: dev
+  VPCALIAS: gr-ttp
+  SSO: 204056024
+  APPNAME: 'infra'
+  APP_INSTANCE: 'dev'
+  AWS_ACCOUNT: 'cto-architecture-sandbox'
+
+
+#Python script will replace the values for uai, env and Builder
+stack_defaults:
+  tags:
+    uai: uai3064620
+    env: dev
+    Builder: vn-builder
+    Life: good
+  s3:
+    bucket: app-uai3064620-landing-zone-dev-s3-lz10
+    prefix: deploy-artifacts/uai3064620/test
+    region: us-east-1
+
+
+region_aliases:
+  us1: us-east-1
+
+stacks:
+  us1:
+
+    # *******************************************
+    # create ec2s Resources with Jinja Template
+    # *******************************************
+
+    ec2-linux-1:
+      template: ../AWS-Patterns/app-patterns-ec2/static-v2.cf-j2.yml
+      params:
+        #Common
+        UAI: { "common": "UAI" }
+        AppName: { "common": "APPNAME" }
+        AppInstance: wfbldr1
+        Env: { "common": "ENV" }
+        #VPCAlias: { "common": "VPCALIAS"}
+        #Basic
+        CustomAMI: # ami-0287656f6c0c09b8f
+          latest_ami:
+            owners: '057064532517'
+            filters:
+              name: GESOS-AWS-BASE_ORACLELINUX8*
+        InstanceProfile: vn-default-ssm-access-profile
+        InstanceType: t3.medium
+        Role: lx
+        RoleType: backend
+        COS: OEL8
+        AppServerAccessGroup: 'CA_AWSENTC_NC_CO_MC_PREPROD'
+       # ALB Parameters
+        LBExposedPort: 443
+        LBBackendPort: 443
+        LBBackendProtocol: HTTPS
+      # LBExposedURLSSLCertARN:
+      #    acm_certificate: 'test.test.com'
+      # LBPlainHTTPListenerBehaviour: forward
+      jinjaparams:
+        InstancesCount: 1
+        Alb: true
+        ExtraVolumes:
+          - mount: /data
+            size: 10
+            device: /dev/xvdk
+            
+    ec2-win-1:
+      template: ../AWS-Patterns/app-patterns-ec2/static-v2.cf-j2.yml
+      params:
+        UAI: { "common": "UAI" }
+        AppName: { "common": "APPNAME" }
+        AppInstance: wfbldr1
+        Env: { "common": "ENV" }
+        #VPCAlias: { "common": "VPCALIAS"}
+        CustomAMI: # ami-0287656f6c0c09b8f
+          latest_ami:
+            owners: '057064532517'
+            filters:
+              name: GESOS-AWS-BASE_Windows2019*
+        InstanceProfile: vn-default-ssm-access-profile
+        #InstanceType: t3.medium
+        Role: win
+        RoleType: backend
+        #FQDN: 'test.test.com'
+        COS: Windows2019
+        AppServerAccessGroup: 'SVR_GE003000000_venuWinTestApp'
+      jinjaparams:
+        InstancesCount: 1
+        Alb: false
+        #ExtraVolumes:
+        #  - mount: /data
+        #    size: 10
+        #    device: /dev/xvdk
+
+    ecr:
+      template: ../AWS-Patterns/ecr/ecr.cf.yml
+      params:
+        UAI: { "common": "UAI" }
+        Env: { "common": "ENV" }
+        AppName: { "common": "APPNAME" }
+        RepoName: ecr-test-rajat
+
+    #ec2-2:
+    #  template: ../AWS-Patterns/ec2/ec2.v2.cf.yml
+    #  params:
+    #    UAI: { "common": "UAI" }
+    #    AppName: { "common": "APPNAME" }
+    #    AppInstance: wfbldr2
+    #    Env: { "common": "ENV" }
+    #    VolumeSize: 10
+    #    VolumeMount: /data
+    #    ServerAMI: # ami-0287656f6c0c09b8f
+    #      latest_ami:
+    #        owners: '057064532517'
+    #        filters:
+    #          name: GESOS-AWS-BASE_ORACLELINUX8*
+    #    Ec2InstanceProfile: vn-default-ssm-access-profile
+    #    EC2Type: t3.medium
+    #    Platform: Linux
+    #    NeedAppSG: 'no'
+    #    AdditionalAppSG:
+    #      stack_output: ec2-1/AppSecurityGroup
+
+
+    # **************************************
+    # create lb
+    # ************************************** 
+    # lb-sg:
+    #   template: ../AWS-Patterns/sg/sg.cf.yml
+    #   params:
+    #     UAI: { "common": "UAI" }
+    #     AppInstance: lbsg
+    #     Env: { "common": "ENV" }
+    #     VPCAlias: { "common": "VPCALIAS" }
+    #     Role: sg2
+    #     AppName: { "common": "APPNAME" }
+
+    #tg:
+    #  template: ../AWS-Patterns/alb-target-group/alb-target-group.v0.1.cf.yml
+    #  params:
+    #    UAI: { "common": "UAI" }
+    #    AppName: { "common": "APPNAME" }
+    #    Env: { "common": "ENV" }
+    #    TargetGroupProtocol: HTTPS
+    #    TargetGroupPort: 443
+    #    HealthCheckPath: /status/status.html
+    #    PathName: status
+    #    HealthCheckPort: 443
+    #    TargetType: instance
+    #    InstanceOne:
+    #      stack_output: ec2-1/InstanceId
+    #    InstanceTwo:
+    #      stack_output: ec2-2/InstanceId
+
+    # lb:
+    #   template: ../AWS-Patterns/alb-internal-app/alb-internal-app.cf.yml
+    #   params:
+    #     UAI: { "common": "UAI" }
+    #     AppName: { "common": "APPNAME" }
+    #     Env: { "common": "ENV" }
+    #     SecurityGroupValue:
+    #       stack_output: lb-sg/SGId
+
+    # listener:
+    #   template: templates/alb-listener-and-listener-rules.cf.yml
+    #   # ../AWS-Patterns/alb-listener-and-listener-rules/alb-listener-and-listener-rules.cf.yml
+    #   params:
+    #     UAI: { "common": "UAI" }
+    #     AppName: { "common": "APPNAME" }
+    #     Env: { "common": "ENV" }
+    #     ALBArn:
+    #       stack_output: lb/AlbARN
+    #     TGArn: 
+    #       stack_output: tg/TgARN
+    #     CertificateArn: 'abc'
+    #     PathPatternToUse: '/'
+    #     ClientIdToUse: 'abc'
+    #     SecretToUse:
+    #       parameter_store: 'uai3064620/oidc-token'
+
+    # **************************************
+    # create db security groups
+    # ************************************** 
+
+    # db-sg:
+    #   template: ../AWS-Patterns/sg/sg.cf.yml
+    #   params:
+    #     UAI: { "common": "UAI" }
+    #     AppInstance: dbsg
+    #     Env: { "common": "ENV" }
+    #     VPCAlias: { "common": "VPCALIAS" }
+    #     Role: sg2
+    #     AppName: { "common": "APPNAME" }
+
+    # **************************************
+    # Stitch security groups
+    # ************************************** 
+   # create several inbound/outbound rules in db-sg & lambda-sg with one stack
+    # stitchsgs:
+    #   template: ../AWS-Patterns/sg/sg-rules.cf-j2.yml
+    #   jinjaparams:
+    #     SGRules:
+    #       # stitch lb and ec2
+    #       - SourceSG: 
+    #           stack_output: lb-sg/SGId    # source (egress)
+    #         TargetSG: 
+    #           stack_output: ec2-1/AppSecurityGroup    # destination - ingress
+    #         Rules:
+    #           - ToPort: '8080'
+    #             FromPort: '8080'
+    #             Protocol: tcp
+    #             Description: "allow traffic between lb and ec2"
+
+    #       # Egress for lambda map
+    #       - SourceSG: 
+    #           stack_output: lambda-function-map/SGId    
+    #         TargetCIDR: '0.0.0.0/0'
+    #         Rules:
+    #           - Protocol: '-1'
+    #             Description: "Outbound for lambda-map"
+    #       # Ingress for lambda map
+    #       - TargetSG: 
+    #           stack_output: lambda-function-map/SGId    
+    #         SourceCIDR: '10.244.26.0/24' #Local VPC CIDR need to change to LB sg
+    #         Rules:
+    #           - ToPort: '443'
+    #             FromPort: '443'
+    #             Protocol: tcp
+    #             Description: "Inbound rule for lambda map"
+    #       # stitch lambda and rds
+    #       - SourceSG: 
+    #           stack_output: lambda-function-map/SGId    # source (egress)
+    #         TargetSG: 
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         Rules:
+    #           - ToPort: '2483'
+    #             FromPort: '2843'
+    #             Protocol: tcp
+    #             Description: "allow traffic between lambda and rds"
+
+    #       # rds ingress
+    #       - TargetSG:
+    #           stack_output: db-sg/SGId    
+    #         SourceCIDR: '10.54.233.79/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleDNALdap1"
+
+    #       - TargetSG: 
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         SourceCIDR: '10.54.233.80/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleDNALdap2"
+
+    #       - TargetSG: 
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         SourceCIDR: '10.54.233.82/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleDNALdap3"
+
+    #       - TargetSG:
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         SourceCIDR: '10.54.233.82/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleTC1"
+
+    #       - TargetSG:
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         SourceCIDR: '10.54.228.91/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleTC2"
+
+    #       - TargetSG:
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         SourceCIDR: '10.54.228.93/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleTC3"
+
+    #       - TargetSG:
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         SourceCIDR: '10.54.100.64/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleSavSC21"
+
+    #       - TargetSG:
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         SourceCIDR: '10.54.100.50/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleSavSC22"
+
+    #       - TargetSG:
+    #           stack_output: db-sg/SGId    # destination - ingress
+    #         SourceCIDR: '10.54.100.4/32'
+    #         Rules:
+    #           - Port: '2483'
+    #             Protocol: tcp
+    #             Description: "InboundRuleSavSC23"

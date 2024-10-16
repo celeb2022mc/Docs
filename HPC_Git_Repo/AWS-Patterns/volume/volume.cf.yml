@@ -1,0 +1,69 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create Ebs Volume.
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: "[a-z0-9\\-]*"
+    Description: AppName, keep to 15 characters or less.
+  
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  
+  AvailabilityZone:
+    Type: String
+    AllowedValues: [ us-east-1a, us-east-1b, eu-west-1a , eu-west-1b]
+    Description: Which Availability Zone to deploy this instance into?
+  
+  VolumeSize:
+    Type: String
+    Default: '100'
+  
+  AppInstance:
+    Type: String
+    Description: "App Instance for ex: jenkins, app, web "
+  
+Resources:
+
+  Volume:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Size: !Ref VolumeSize
+      Encrypted: 'true'
+      # KmsKeyId: !Ref KmsKeyArn
+      AvailabilityZone: !Ref AvailabilityZone
+      VolumeType: gp2
+      Tags:
+        - Key: Name
+          Value: !Sub '${UAI}-${AppName}-${AppInstance}'
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppName
+        - Key: env
+          Value: !Ref Env
+        - Key: role
+          Value: AppInstance
+        - Key: confidential
+          Value: 'yes'
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+Outputs:
+  VolumeId:
+    Description: Volume Id
+    Value: !Ref Volume
+          

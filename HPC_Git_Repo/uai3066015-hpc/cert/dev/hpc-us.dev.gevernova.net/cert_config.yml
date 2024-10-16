@@ -1,0 +1,13 @@
+action: upload_cert
+san_names: []
+force_update: false
+cert_name: hpc-us.dev.gevernova.net
+update_version_name: 2  # This has to be used in conjuction with Secrets manager tags to make sure we are not updating every single time :) only pass if doing update_csr
+# action could be create_csr/update_csr/upload_cert
+# force_update can be true/false . use in conjuction with upload_cert/update_csr
+#  re try 2 3 4 5 6 7 9
+#create_csr - 1 09/13/2024 - Mahendra S
+#update_csr - 1 09/13/2024 - Ismail
+#upload_cert - 1 09/19/2024 - Mahendra S
+#upload_cert - 2 09/20/2024 - Mahendra S
+#upload_cert - 2 09/20/2024 - Ismail

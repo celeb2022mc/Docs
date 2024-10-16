@@ -1,0 +1,6 @@
+AzName: AZ1
+SubnetName: "endpoint-az1"
+SubnetCidrBlock: "100.255.250.0/26" 
+NaclExportName: "other-nacl"
+RouteTableExportName: "rt-EpId" 
+SubnetType: Endpoint

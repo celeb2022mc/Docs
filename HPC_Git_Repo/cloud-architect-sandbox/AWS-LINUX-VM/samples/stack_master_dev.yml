@@ -1,0 +1,19 @@
+region_aliases:
+  dev: us-east-1
+stack_defaults:
+  tags:
+    application: test
+region_defaults:
+  us-east-1:
+    tags:
+      env: dev
+
+stacks:
+  dev:
+    #ec2_dev:
+    #  template: ec2/ec2.cf.yml
+    #  tags:
+    #    purpose: test
+  
+
+

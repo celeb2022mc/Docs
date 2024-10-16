@@ -1,0 +1,1553 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: v3 EC Static universal - Create a single or multiple app/web servers in the subnets (az1 or az2) with an optional ALB.
+              Last release from 05-Jan-2022
+
+# File: static-v3.cf-j2.yml.
+
+## As of 06-May-2021 only difference between v2 and v3 is that v3 uses gp3 volumes (including the root volume which can cause an instance replacement if updating a stack created with v2)
+
+ ## History
+  # 05-Jan-2022: Add support for AmazonLinux2 (this also requires support for this value in mc-cf-get-latest-ami.py)
+  # 27-Oct-2021: code and package repo references updated to bu
+  # 29-Jun-2021: add support for disable WAF explicitly
+  # 06-May-2021: change default storage type (for EBS volumes) to gp3 (was gp2) - causes instance to be replaced if previous instance was created with v2 template (EBS VolumeType = gp2)
+  # 06-May-2021: Make sure specified jinjaparams.ExtraVolumes[].filesystem is passed to /usr/local/bin/format-volumes.sh
+  # 05-May-2021: change UserData for new AMIs; Add m5, m5a, m5n, c5, c5a, c5n families with 2xlarge and 4xlarge capacities
+  # 14-Apr-2021: add LBIdleTimeout parameter. This param (and corresponding ALB attribute was present in ASG template, but not here)
+  # 12-Apr-2021: Add 'complex' host based routing Jinja options; See ../test/Static-5.yml for an example
+  # 12-Apr-2021: Modify UserData to make aws-cfn-bootstrap install (hopefully) more robost
+  # 01-Apr-2021: remove support for StaticIP param; Remove NetworkInterfaces, because it causes instance replacement when you change TierSG or CommonSG
+  # 31-Mar-2021: Introduce optional param FQDN; add tags frontend-dnsname (FQDN) and role-type (RoleType) to ALB & TG
+  # 29-Mar-2021: Add support for Oracle Enterprise Linux 7 (OEL7); Updated the condition of volume size in Extravolumes; Add tag cf-stack-id to ALB and TG
+  # 29-Mar-2021: Modify InstanceType allowed values - add 'r5a.2xlarge', 'r5n.large', 'r5n.xlarge', 'r5n.2xlarge', 'r5b.large', 'r5b.xlarge', 'r5b.2xlarge'
+  # 26-Mar-2021: Add support for APP2; Fix WinWaitHandle for multiple instances
+  # 24-Mar-2021: Introduce jinja param AppSubnetName for PC Teamcenter use case; remember - a Windows server cannot exist in the AUTH subnet
+  # 23-Mar-2021: Extravolumes created explicitly
+  # 17-Mar-2021: Added InstancesID , IP , ALBDNS in outputs
+  # 15-Mar-2021: Updated UseImpervaWAF param and FrontEndAcceptsOnlyFromImpervaWaf condition
+  # 11-Mar-2021: Updated a condition to avoid LB parameters in template if they do not select ALB
+  # 25-Feb-2021: Add input UseImpervaWAF for Imperva use case. The impervawaf-sg is 'new'. Run workload pipeline with --tags vpc if it does not yet exist (applies only to MC Limited)
+  # 18-Feb-2021 : Initial version
+
+ # Validation:
+  # trying to do validation with cfn-lint is not easy to do directly
+  # probably better to run regen script first and then do a validation of the specific template
+  #  pip install --user cfn-lint
+  #  export PATH=$HOME/.local/bin:$PATH
+  #
+  #  python3 ../../bin/regensm.v2.py Static-3.yml
+  #  cfn-lint deploy_templates/ec2/UAI3006600-static-3d-win3d.cf.yml
+
+Mappings:
+  # see ../../UpDownSchedule-Format.md for explanation of format specification (it is linked from the README.md for this component
+  ScheduleMap:
+    'eu-west-1':
+      WEEKDAYS: 'U(30 06 * * Mon-Fri)D(30 18 * * Mon-Fri)'
+      NOSTART:  'U(None)D(30 18 * * *)'
+    'eu-central-1':
+      WEEKDAYS: 'U(30 06 * * Mon-Fri)D(30 18 * * Mon-Fri)'
+      NOSTART:  'U(None)D(30 18 * * *)'
+    'us-east-1':
+      WEEKDAYS: 'U(30 11 * * Mon-Fri)D(30 23 * * Mon-Fri)'
+      NOSTART:  'U(None)D(30 23 * * *)'
+
+  PatchGroupMap: 
+    Linux: 
+      prd: "Patch-App-PrdLinux"
+      dev: "Patch-App-NonPrdLinux"
+      qa: "Patch-App-NonPrdLinux"
+      stg: "Patch-App-NonPrdLinux"
+    Windows:
+      prd: "Patch-App-PrdWindows"
+      dev: "Patch-App-NonPrdWindows"
+      qa: "Patch-App-NonPrdWindows"
+      stg: "Patch-App-NonPrdWindows"
+  MaintanceWindow: 
+   Linux: 
+     prd: "MO-WK2-SA-0000"
+     dev: "MO-WK1-SA-0000"
+     qa: "MO-WK1-SA-0000"
+     stg: "MO-WK1-SA-0000"
+   Windows:
+     prd: "MO-WK3-SA-0000"
+     dev: "MO-WK2-SA-0000"
+     qa: "MO-WK2-SA-0000"
+     stg: "MO-WK2-SA-0000"
+
+Parameters:
+ # App  basic  information
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppInstance:
+    Type: String
+    Description: "Which instance of the application. Example: app1-dev. Must be lowercase. Max 17 chars."
+    AllowedPattern: '^[a-z][a-z0-9\._\-]*[a-z0-9]$'
+    ConstraintDescription: "Must contain only lower case letters, digits, '.', '_' or '-'. Min 3 chars. Max 17. Must start with a letter and end with a letter or digit"
+    MinLength: 3
+    MaxLength: 17
+
+  AppName:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: "[a-z0-9\\-]*"
+    Description: AppName, keep to 15 characters or less.
+
+
+  # VPCAlias:
+  #   Type: String
+  #   # there has to be an export with the value 'vpc:${VPCAlias}:id' (and corresponding subnet exports) in the target account where this will be deployed
+  #   Description: The VPC Alias where App will be deployed
+
+  Env:
+    Type: String
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  AppEnvCfgID:
+    Type: String
+    Description: Please provide App cfg ID and we can find in service-now in your applications env.
+
+  Role:
+    Type: String
+    Default: app
+    Description: The 'role' tag value
+    # we need to limit the lenght of Role because we use it as part of the LB and TG names and these are limited to total of 32 chars
+    # these already include ${AppInstance}-${UAI} which is 17 + 1 + 10 = 28 chars, so it leaves only 4 chars (3 when you remove the '-')
+    MaxLength: 3
+
+  CTOCloudOpsManaged:
+    Type: String
+    Default: 'yes'
+    Description: Is this Server Managed by CTOCloudOps?
+    AllowedValues: [ 'yes', 'no' ]
+
+  RoleType:
+    Type: String
+    Default: backend
+    Description: This will drive the  network, depends on value it will deploy corresponding subnets
+    AllowedValues: [ 'backend']
+
+  NixGroupApp:
+    Type: String
+    Default: Test
+    Description: This will allow particular group access
+  
+  FQDN:
+    Type: String
+    Description: Specify fully qualified domain name for the front-end for this application (even if this is a backend)
+    Default: 'not-set'
+
+  # changed as of 17-Jul-2017 - for Linux - create the /usr/local/etc/appConfig.json file from this CF template (if the value for the AppServerAccessGroup/netgroup is set)
+  AppServerAccessGroup:
+    Type: String
+    Description: 'For WINDOWS: Specify the name of the AD group; For Linux: specify the name of an existing LDAP netgroup'
+    Default: ''
+
+ # App Infra custom settings
+  InstanceType:
+    Type: String
+    Description: "What instance type to use"
+    Default: 't3a.medium'
+    # the purpose of the restriction here is mainly to stear away from obsolete family types and to use cost-effective alternatives when difference is insignificant for most use cases
+    AllowedValues: [ 't3.medium', 't3.large', 't3a.medium', 't3a.large', 'm5.large', 'm5.xlarge', 'm5a.large', 'm5a.xlarge', 'r5.large', 'r5.xlarge', 'r5a.large', 'r5a.xlarge',
+                     'r5a.2xlarge', 'r5n.large', 'r5n.xlarge', 'r5n.2xlarge', 'r5b.large', 'r5b.xlarge', 'r5b.2xlarge',
+                     'm5a.2xlarge', 'm5.2xlarge', 'm5n.2xlarge', 'c5a.2xlarge', 'c5.2xlarge', 'c5n.2xlarge',
+                     'm5a.4xlarge', 'm5.4xlarge', 'm5n.4xlarge', 'c5a.4xlarge', 'c5.4xlarge', 'c5n.4xlarge'
+                   ]
+
+  Platform:
+    Type: String
+    AllowedValues: [ Linux, Windows ]
+    Default: Linux
+    Description: Which Type of Platform Linux OR Windows
+
+  COS:
+    Type: String
+    AllowedValues: [ RHEL8, OEL8, AmazonLinux2, Windows2016, Windows2019 ]
+    Default: OEL8
+    Description: Which OS to use?
+
+  CustomAMI:
+    Type: String
+    Description: "Use a custom AMI instead of the 'base' AMI for the OS. It needs to have all the compliance and managed hosting primitives backed-in"
+    AllowedPattern: '^$|^ami-[0-9a-f]*$'
+    Default: ''
+
+  UpDownSchedule:
+    Description: "Schedule to create and terminate instances in the ASG. Please see documentation for format details"
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^None$|^U\(30 [0-9\/]* [0-9\*a-zA-Z,\/-]* [0-9\*a-zA-Z,\/-]* [0-9\*a-zA-Z,#\/-]*\)D\(30 [0-9\/]* [0-9\*a-zA-Z,\/-]* [0-9\*a-zA-Z,\/-]* [0-9\*a-zA-Z,#\/-]*\)$|^U\(None\)D\(30 [0-9\/]* [0-9\*a-zA-Z,\/-]* [0-9\*a-zA-Z,\/-]* [0-9\*a-zA-Z,#\/-]*\)$'
+    ConstraintDescription: "Must contain valid schedule format as provided in documentation.
+        Example 'U(30 06 * * Mon-Fri)D(30 18 * * Mon-Fri)'
+        See https://github.build.ge.com/Cloud/ManagedComponents/blob/lab/UpDownSchedule-Format.md"
+
+  InstanceProfile:
+    Type: String
+    Default: ''
+    Description: Specify the name of a custom IAM role/profile to assign to the EC2 instance. Otherwise 'ssm-managed-profile' will be used
+
+  InstancePlacementGroup:
+    Type: String
+    Default: ''
+    Description: Optionally specify the name of an existing Placement Group where
+      to start the instance. You need to comply with the limitations of which instance
+      type can use this as described in http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placement-groups.html
+
+  AdditionalAppSG:
+    Type: String
+    Default: ''
+    Description: "(Optional) Specify an existing 'common' SG to assign to your app server."
+
+  TierSG:
+    Type: String
+    Default: ''
+    Description: "(Optional) Specify an existing 'tier' SG to assing to your app server."
+
+  CreateOwnSG:
+    Type: String
+    AllowedValues: [ 'yes', 'no' ]
+    Default: 'yes'
+    Description: Specify 'no' if you don't want an 'application specific' SG to be
+      created. By default a new SG is created (the default value is 'yes')
+      A new SG will be created if you EFSFileSystemID is set
+
+  ExtraVolumesKMSKey:
+    Type: String
+    Default: ''
+    Description: Which KMS key to use for encryption of ALL additional data volume
+      that will be created by this template?
+
+ # advanced
+
+  BaseConfigFile:
+    Type: String
+    Description: Name of the file containing base configuration script
+    Default: 'bootstrap.sh'
+
+  CustomConfigFile:
+    Type: String
+    Description: Name of the file containing custom configuration script
+    Default: ''
+
+ #EFS
+  EFSMountTargetSecurityGroup:
+    Type: String
+    Description: "(Optional) SG of MountTarget for the EFS"
+    AllowedPattern: '^$|^sg-[0-9a-f]*$'
+    Default: ''
+  EFSFileSystemID:
+    Type: String
+    Description: "(Optional) The ID of the EFS file system"
+    AllowedPattern: '^$|^fs-[0-9a-f]*$'
+    Default: ''
+  EFSMountPoint:
+    Type: String
+    Description: "(Optional) Where to mount the EFS file system"
+    Default: '/efs-data'
+
+ #s3
+  CodeBucket:
+   Type: String
+   Description: "(Optional) From Where to download files"
+   Default: 'vn-lz-common-bucket'
+  
+  ArtifactsBucket:
+   Type: String
+   Description: "(Optional) From Where to download CustomConfigutaion files"
+   Default: 'vn-lz-common-bucket-1'
+  
+
+ #ALB
+
+  {% if instance.Alb %}
+  LBExposedPort:
+    Type: Number
+    MinValue: 0
+    MaxValue: 32767
+    Default: 80
+    Description: "Specify the TCP port which this app tier will expose"
+
+  LBBackendProtocol:
+    Type: String
+    Default: 'HTTPS'
+    AllowedValues: [ 'HTTP' , 'HTTPS' ]
+
+  LBBackendPort:
+    Type: Number
+    MinValue: 0
+    MaxValue: 32767
+    Default: 8443
+    Description: "Specify the TCP port which the app instances will expose to the LB"
+
+  LBExposedURLSSLCertARN:
+    Type: 'String'
+    Description: 'The ARN for an SSL cert which will be assigned to the ALB if ExposedProtocol = HTTPS'
+    Default: ''
+
+  LBHealthCheckFilePath:
+    Type : String
+    Default: /healthcheck/monitor.html
+
+  # this is added for specific application to disable the HTTP2
+  LBEnableHTTP2:
+    Type: String
+    Default: 'true'
+    Description: "Specify 'false' to disable HTTP2 traffic. By default it is enabled."
+    AllowedValues: [ 'true', 'false' ]
+
+  # add LBIdleTimeout on 14-Apr-2021. This param (and corresponding ALB attribute was present in ASG template, but not here)
+  LBIdleTimeout:
+    Type: String
+    Default: 60
+    Description: 'The idle timeout value, in seconds. The valid range is 1-4000 seconds. The default is 60 seconds.'
+
+  # stickiness
+  LBEnableLBCookieStickiness:
+    Type: String
+    Default: 'no'
+    Description: "If you specify 'yes' the frontend ALB will generate a 'stickiness' cookie to track the same user session to always be sent ot the same backend"
+    AllowedValues: [ 'yes', 'no' ]
+
+  LBCustomCookieName:
+    Type: String
+    Default: ''
+    Description: "Specify the name of the cookie name which your application server generates(eg. JSESSION)"
+
+  LBStickinessLBCookieDurationSeconds:
+    Type: Number
+    Default: '7200'   # 2 hours
+    Description: ' The time period, in seconds, during which requests from a client should be routed to the same target.
+      After this time period expires, the load balancer-generated cookie is considered stale.
+      The range is 1 second to 1 week (604800 seconds)'
+    MinValue: 1
+    MaxValue: 86400
+
+  LBStickinessDeregistrationDelayTimeoutSeconds:
+    Type: Number
+    Default: '300'
+    Description: "The duration before ALB stops sending requests to targets that are deregistering"
+
+  LBStickinessSlowStartDurationSeconds:
+    Type: Number
+    Default: '300'
+    Description: "Time for the target to warm up beore receving the full requests from ALB"
+
+  LBPlainHTTPListenerBehaviour:
+    Type: String
+    Default: 'redirect'
+    Description: >
+      What frontend plain HTTP ALB listener (on port 80) to create:  * forward - send the plain HTTP traffic to the backend * redirect - redirect HTTP to HTTPS from the ALB
+    AllowedValues: [ 'redirect' ]
+
+  LBAssignNameToTG:
+    Type: String
+    Default: 'no'
+    Description: >
+      Should we explicitly name the target groups ?
+        * yes - the name is 'tied' to AppInstance value
+        * no -  the name is 'random' - you might have to use this if you attempt to change settings on an existing TG
+    AllowedValues: [ 'yes', 'no' ]
+
+  UseImpervaWAF:
+    Type: String
+    Default: 'no'
+    Description: "Set to 'yes' to allow only HTTPS traffic only from Imperva WAF networks. Applies when RoleType=frontend. Specifying 'yes' in a standard/connected account will result in an error"
+    AllowedValues: [ 'yes', 'no' ]
+
+  AttachAWSWAF:
+    Type: String
+    Default: 'yes'
+    Description: "Set to 'no' when you do not want to attach the AWS managed WAF web ACL. Keep in mind this will NOT remove an existing web ACL association. Specifying 'yes' in a limited/external account is not allowed (has no effect)"
+    AllowedValues: [ 'yes', 'no' ]
+  Scheme:
+    Type: String
+    Default: 'internal'
+    AllowedValues: [ 'internet-facing' , 'internal' ]
+  {% endif %}
+
+
+# define conditions
+Conditions:
+  2faAccessGroupProvided: !Not [ !Equals [ !Ref AppServerAccessGroup, '' ] ]
+  IsCustomAMI: !Not [ !Equals [ !Ref CustomAMI, '' ] ]
+  IsNotCustomAMI: !Equals [ !Ref CustomAMI, '' ]
+
+  IsBaseConfigSpecified: !Not [ !Equals [ !Ref BaseConfigFile, '' ] ]
+  IsCustomConfigSpecified: !Not [ !Equals [ !Ref CustomConfigFile, '' ] ]
+
+  AdditionalAppSGCondition: !Equals [ !Ref AdditionalAppSG, '' ]
+  TierSGIsBlank: !Equals [ !Ref TierSG, '' ]
+
+  # CreateOwnSG: !Equals [ !Ref CreateOwnSG, 'yes' ]
+  # W1001 GetAtt to resource "EC2StdSG" that may not be available when condition "DoMountEFS" is True and when condition "CreateOwnSG" is False at Resources/EFSInboundRule/Properties/SourceSecurityGroupId/Fn::GetAtt
+  DoMountEFS: !Not [ !Equals [ !Ref EFSFileSystemID, '' ] ]
+  
+  # CreateOwnSG
+  CreateOwnSG: !Or
+    - !Equals [ !Ref CreateOwnSG, 'yes' ]
+    - !Condition DoMountEFS
+
+  DataVolKMSKeyIsBlank: !Equals [ !Ref ExtraVolumesKMSKey, '' ]
+
+  PlacementGroupIsBlank: !Equals [ !Ref InstancePlacementGroup, '' ]
+  IsWindows: !Or
+    - !Equals [ !Ref COS, 'Windows2012R2' ]
+    - !Equals [ !Ref COS, 'Windows2016' ]
+    - !Equals [ !Ref COS, 'Windows2019' ]
+  IsLinux: !Not [ !Condition IsWindows ]
+  IsAmazonLinux: !Equals [ !Ref COS, 'AmazonLinux2' ]
+
+  IsProdEnv: !Equals [ !Ref Env, 'prd' ]
+
+  isUpDownScheduleNull: !Equals [!Ref UpDownSchedule, '']
+  CustomInstanceProfile: !Not [ !Equals [ !Ref InstanceProfile, '' ] ]
+  IsAuthOnAppServer: !Equals [ !Ref RoleType, 'auth-on-app' ]
+
+  IsFrontendServer: !Equals [ 'frontend', !Ref RoleType ]
+  IsFrontendLB: !Or
+    - !Equals [ 'frontend', !Ref RoleType ]
+    - !Equals [ 'auth-on-app', !Ref RoleType ]
+
+  {% if instance.Alb %}
+  FrontEndAcceptsOnlyFromImpervaWaf: !And
+    - !Equals [ 'frontend', !Ref RoleType ]
+    - !Equals [ 'yes', !Ref UseImpervaWAF ]
+
+  DoesNotHaveSSLCert:  !Equals [ !Ref LBExposedURLSSLCertARN, '' ]
+  sendPlainHttpToBackend: !Equals [ 'forward', !Ref LBPlainHTTPListenerBehaviour ]
+  redirectPlainHttpToHTTPS: !Equals [ 'redirect', !Ref LBPlainHTTPListenerBehaviour ]
+  doEnableStickiness: !Equals [ 'yes', !Ref LBEnableLBCookieStickiness ]
+  doEnableCustomStickiness: !Equals [ !Ref LBCustomCookieName, '' ]
+  doAssignNameToTG: !Equals [ 'yes', !Ref LBAssignNameToTG ]
+  IsWAFAssociationEnabled:  !Equals [ !Ref AttachAWSWAF, 'yes' ]
+
+  {% endif %}
+
+
+Resources:
+
+ # call the mc-cf-get-latest-ami lambda to obtain the latest GESOS AMI for this OS
+  # newestGesosBaseAmi:
+  #   Type: Custom::FindAMI
+  #   Condition: IsNotCustomAMI
+  #   Properties:
+  #     ServiceToken: !ImportValue 'mc:lambda:mc-cf-get-latest-ami:arn'
+  #     cOS: !Ref COS
+
+ # EBS volumes
+  {% for n in range(instance.InstancesCount) %}
+  {% set zonenumber = (((loop.index%2) | round(1) | int)+1) %}
+  {% set instNum = loop.index %}
+
+  {% if instance.ExtraVolumes is defined %}
+    {% for vol in instance.ExtraVolumes %}
+
+  EBSDataVol{{loop.index}}Inst{{instNum}}:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: !ImportValue 'AZ{{zonenumber}}Name'
+      #!Sub "az{{zonenumber}}"
+        # Fn::ImportValue: !Sub 'vpc:${VPCAlias}:az{{zonenumber}}:name'
+      Encrypted: true
+      Iops: {{ vol.iops if vol.iops else "!Ref 'AWS::NoValue' " }}
+      # KmsKeyId: !If [ DataVolKMSKeyIsBlank, !ImportValue 'kms:base:mc-coreami-svc:arn' , !Ref ExtraVolumesKMSKey ]
+      Size: {{vol.size if vol.size else "!Ref 'AWS::NoValue' "}}
+      SnapshotId: {{ vol.snapshot if vol.snapshot else "!Ref 'AWS::NoValue' " }}
+      VolumeType: {{ vol.type if vol.type else "gp3" }}
+      Tags:
+          - Key: Name
+            Value: !Sub "${AppInstance}-${UAI}-${Role}"
+          - Key: uai
+            Value: !Ref UAI
+          - Key: app
+            Value: !Ref AppInstance
+          # - Key: assetid
+            # Value: !Ref AssetId
+          - Key: env
+            Value: !Ref Env
+          - Key: role
+            Value: datavol
+          - Key: ebs-backup-plan
+            Value: !If [ IsProdEnv, '35days', '7days' ]
+          - Key: Stack_ID
+            Value: !Sub ${AWS::StackId}
+          - Key: Stack_Name
+            Value: !Sub ${AWS::StackName}
+
+      {% endfor %}
+    {% else %}
+  {% endif %}
+
+ # Linux
+  LinuxEC2Instance{{instNum}}:
+    Type: AWS::EC2::Instance
+    Condition: IsLinux
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M  # changed to 15 minutes on 09-Apr-2021. It was PT45M before
+        Count: 1
+    Metadata:
+      Comment: Bootstrap this Linux instance
+      AWS::CloudFormation::Init:
+        configSets:
+         default: !If
+           - DoMountEFS
+           - !If
+               - 2faAccessGroupProvided
+               - [ ldapConfigiuration, getConfigScript, formatExtraVolumes, createAppConfig, runConfigScript, mountEFS ]
+               - [ ldapConfigiuration, getConfigScript, formatExtraVolumes, runConfigScript, mountEFS ]
+           - !If
+               - 2faAccessGroupProvided
+               - [ ldapConfigiuration, getConfigScript, formatExtraVolumes, createAppConfig, runConfigScript ]
+               - [ ldapConfigiuration, getConfigScript, formatExtraVolumes, runConfigScript ]
+        ldapConfigiuration:
+          files:
+            "/usr/local/bin/ldapConfigiuration.sh":
+              mode: '000755'
+              owner: root
+              group: root
+              content: |
+                #!/bin/bash
+                # script to run LDAP Configuration
+                export InstanceId=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+                NixGroupAppName="$1"
+                echo "trying to configure the LDAP Auth"
+                . /etc/os-release
+                echo "$ID"
+                if [ "$ID" = "centos" ]  || [ "$ID" = "rhel" ] || [ "$ID" = "amzn" ] || [ "$ID" = "ol" ]; then
+                echo "Running ssm send-command"
+                /usr/local/bin/aws ssm send-command --document-name "arn:aws:ssm:us-east-1:325381443140:document/VN-LDAP-Linux" --parameters NixGroupApp=${NixGroupAppName} --targets "Key=instanceids,Values=$InstanceId"
+                elif [ "$ID" = "ubuntu" ]; then
+                apt-get update -y
+                apt install python3-pip -y
+                pip install heat-cfntools
+                /usr/local/bin/aws ssm send-command --document-name "arn:aws:ssm:us-east-1:325381443140:document/VN-LDAP-Ubuntu" --parameters NixGroupApp=${NixGroupAppName} --targets "Key=instanceids,Values=$InstanceId"
+                else
+                echo "Other OS Found"
+                fi
+          commands:
+            LdapConfig:
+              command: !Sub '/usr/local/bin/ldapConfigiuration.sh ${NixGroupApp}'
+              ignoreErrors: 'true'
+
+        formatExtraVolumes:
+          commands:
+          {% if instance.ExtraVolumes is defined %}
+            {% for vol in instance.ExtraVolumes %}
+            formatVol{{loop.index}}:
+              command: !Sub
+                - '/usr/local/bin/format-volumes.sh {{vol.device}} {{vol.mount}} ${VOLUMEID} {{ vol.filesystem | default("ext4") }} >> /var/log/cfn-bootstrap-format-extra-volumes.log 2>&1'
+                - { VOLUMEID: !Ref 'EBSDataVol{{loop.index}}Inst{{instNum}}' }
+              ignoreErrors: 'true'
+            {% endfor %}
+          {% else %}
+            formatVol:
+              command:   'echo "$(date) No existing data volume is specified" >> /var/log/cfn-bootstrap-format-extra-volumes.log 2>&1'
+              ignoreErrors: 'true'
+          {% endif %}
+
+        createAppConfig:
+          files:
+            "/usr/local/etc/appConfig.json":
+              mode: '000644'
+              owner: root
+              group: root
+              content: !Sub '[ { "app": "2fa_netgroups", "groups": [ { "${AppServerAccessGroup}": [ "ALL" ] } ] } ]'
+
+   #     mountEFS:
+   #       files:
+   #         "/usr/local/bin/mount-efs.sh":
+   #           content: |
+   #             #!/bin/bash
+   #             # script to mount an EFS file system
+
+   #             [ 0 -ne $(id -u) ] && echo "ERROR: $(date) - Must run as root." && exit 1
+   #             DEVICE="$1"; MOUNT_POINT="$2"
+   #             echo ""
+   #             echo "INFO: $(date) - starting $0 with DEVICE=$DEVICE, MOUNT_POINT=$MOUNT_POINT"
+
+   #             [ -z "$DEVICE" ] && echo "ERROR: $(date) - Must specify block device name (/dev/xvdk, etc.) as 1st input parameter." && exit 1
+   #             [ -z "$MOUNT_POINT" ] && echo "ERROR: $(date) - Must specify mount point as 2nd input parameter." && exit 1
+
+   #             # what are the current settings ?
+   #             echo "Current stunnel settings from /etc/amazon/efs/efs-utils.conf"
+   #             cat /etc/amazon/efs/efs-utils.conf | egrep 'stunnel_check_cert_hostname|stunnel_check_cert_validity'
+
+   #             # this is not needed if the package stunnel-5.49 is installed
+   #             # skip this if BOTH settings are already set to false
+   #             #egrep -q 'stunnel_check_cert_hostname = false|stunnel_check_cert_validity = false' /etc/amazon/efs/efs-utils.conf
+   #             #[ 0 -ne $? ] && sed -i.BACKUP \
+   #             #    -e 's/stunnel_check_cert_hostname = true/stunnel_check_cert_hostname = false/' \
+   #             #    -e 's/stunnel_check_cert_validity = true/stunnel_check_cert_validity = false/' \
+   #             #    /etc/amazon/efs/efs-utils.conf
+
+   #             BACKUP_FSTAB=/etc/fstab.$(date "+%Y-%m-%d").orig
+   #             [ ! -e $BACKUP_FSTAB ] && cp -p /etc/fstab $BACKUP_FSTAB
+
+   #             mkdir -p $MOUNT_POINT
+   #             echo "$DEVICE $MOUNT_POINT efs  _netdev,tls,rw,user 0 0" >> /etc/fstab
+   #             mount -a
+   #             ERR=$?
+
+   #             # change permissions on the folder to the tomcat user (only if it exists)
+   #             # AND set the 'sticky' flag for the mount folder, so that all files are set to the tomcat group no matter who creates them
+   #             # IMPORTANT: This needs to happen AFTER the file system is mounted
+   #             grep -q '^tomcat:' /etc/passwd && chown tomcat:tomcat $MOUNT_POINT && chmod g+s $MOUNT_POINT
+
+   #             echo "INFO: $(date) - mount command completed with exit code $ERR. DONE"
+   #             exit $ERR
+
+   #           mode: '000755'
+   #           owner: root
+   #           group: root
+
+   #         "/usr/local/bin/installDriver.sh":
+   #           content: |
+   #             #!/bin/bash
+   #             REGION="$1"
+   #             PACKAGES_BUCKET="$2"
+   #             [ ! -r /etc/yum.repos.d/ge_custom_el7-dev_rpm.repo ] && echo "[ge_custom_el7-dev_rpm]
+   #             name=Custom GE CentOS 7 Yum Repository
+   #             baseurl=https://${PACKAGES_BUCKET}.s3.${REGION}.amazonaws.com/yum/ge_custom_el7-dev/rpm
+   #             enabled=1
+   #             fastestmirror_enabled=0
+   #             gpgcheck=0
+   #             sslverify=true" > /etc/yum.repos.d/ge_custom_el7-dev_rpm.repo
+   #             yum -y install stunnel-5.49 amazon-efs-utils
+
+   #           mode: '000755'
+   #           owner: root
+   #           group: root
+
+   #       commands:
+   #         # this step is temporary until the RPM(s) are pre-installed on the AMI
+   #         installDrivers:
+   #           command: !Sub
+   #                       - '/usr/local/bin/installDriver.sh ${AWS::Region} ${PCKGREPOBUCKET} >> /var/log/cfn-bootstrap-mount-efs.log 2>&1'
+   #                       - { PCKGREPOBUCKET: !ImportValue "s3:bu:packagerepo:name"  }
+   #         mountEFS:
+   #           command: !Sub '/usr/local/bin/mount-efs.sh ${EFSFileSystemID} ${EFSMountPoint} >> /var/log/cfn-bootstrap-mount-efs.log 2>&1'
+   #           #ignoreErrors: 'true'
+
+        getConfigScript:
+          commands:
+            downloadBaseConfigScript:
+              command:
+                Fn::If:
+                  - IsBaseConfigSpecified
+                  - Fn::Sub:
+                    - '/usr/local/bin/aws --region ${AWS::Region} s3 cp --no-progress s3://${CODE_BUCKET}/tools/2fa/${BaseConfigFile} /tmp'
+                    - { CODE_BUCKET: !Ref CodeBucket }
+                  - 'echo "INFO: No base Config required"'
+            downloadVolumeFormatScript:
+              command:
+                Fn::If:
+                  - IsBaseConfigSpecified
+                  - Fn::Sub:
+                    - '/usr/local/bin/aws --region ${AWS::Region} s3 cp --no-progress s3://${CODE_BUCKET}/tools/commonscripts/format-volumes.sh /usr/local/bin && sed -i -e "s/\r$//" /usr/local/bin/format-volumes.sh && chmod 700 /usr/local/bin/format-volumes.sh'
+                    - { CODE_BUCKET: !Ref CodeBucket }
+                  - 'echo "INFO: No need to download format-volumes.sh"'
+            downloadCustomConfigScript:
+              command:
+                Fn::If:
+                  - IsCustomConfigSpecified
+                  - Fn::Sub:
+                    - '/usr/local/bin/aws --region ${AWS::Region} s3 cp --no-progress s3://${ARTIFACTS_BUCKET}/deploy-artifacts/${UAI}/${AppInstance}/${CustomConfigFile} /tmp && chmod 700 /tmp/${CustomConfigFile}'
+                    - { ARTIFACTS_BUCKET: !Ref ArtifactsBucket }
+                  - 'echo "INFO: No custom Config required"'
+   #         downloadCfnLogsUploadScript:
+   #           command:
+   #             Fn::Sub:
+   #                 - 'curl -sS -o "/usr/local/bin/upload-cfn-logs.sh" "https://s3.${AWS::Region}.amazonaws.com/${CODEBUCKET}/tools/commonscripts/upload-cfn-logs.sh" && chmod 700 /usr/local/bin/upload-cfn-logs.sh'
+   #                 - { CODEBUCKET: !ImportValue "s3:bu:code:name"  }
+        runConfigScript:
+          commands:
+   #         runBaseConfigScript:
+   #           command:
+   #             Fn::If:
+   #               - IsBaseConfigSpecified
+   #               - Fn::Sub:
+   #                 - |
+   #                   #!/bin/bash
+   #                   # make sure log file is not accessible to world
+   #                   LOG_FILE=/var/log/bootstrap.log
+   #                   echo "" >> $LOG_FILE
+   #                   echo "New run from CF on $( date )" >> $LOG_FILE
+   #                   chmod 660 $LOG_FILE
+   #                   # make sure script is executable and run it
+   #                   cd /tmp && chmod +x "/tmp/${BaseConfigFile}" && "/tmp/${BaseConfigFile}" ${CODEBUCKET} ${ARTIFACTS_BUCKET} >> $LOG_FILE 2>&1
+   #                   ERR=$?
+   #                   echo "Exit code was $ERR"
+   #                   rm -f "/tmp/${BaseConfigFile}"
+   #                   exit $ERR
+   #                 - { CODEBUCKET: !ImportValue "s3:bu:code:name",
+   #                     ARTIFACTS_BUCKET: !ImportValue "s3:mc:artifacts:name" }
+   #               - 'echo "INFO: No base Config required"'
+            runCustomConfigScript:
+              command:
+                Fn::If:
+                  - IsCustomConfigSpecified
+                  - Fn::Sub:
+                    - |
+                      #!/bin/bash
+                      export CODEBUCKET="${CodeBucket}"
+                      export ARTIFACTS_BUCKET="${ArtifactsBucket}"
+                      CUSTOMSCRIPT=$( /usr/bin/basename ${CustomConfigFile} )
+                      cd /tmp
+                      chmod +x ./$CUSTOMSCRIPT
+                      ./$CUSTOMSCRIPT >> /var/log/cfn-run-custom-config.log 2>&1
+                    - { CODEBUCKET: !Ref CodeBucket,
+                        ARTIFACTS_BUCKET: !Ref ArtifactsBucket }
+                  - 'echo "INFO: No custom Config required"'
+    Properties:
+      #KeyName: !If [ IsCustomKey, !Ref CustomKey, !Ref 'AWS::NoValue' ]
+      AvailabilityZone: !ImportValue 'AZ{{zonenumber}}Name'
+        # Fn::ImportValue: !Sub 'vpc:${VPCAlias}:az{{zonenumber}}:name'
+
+      ImageId: !Ref CustomAMI
+
+      InstanceInitiatedShutdownBehavior: stop
+      IamInstanceProfile: !If [ CustomInstanceProfile, !Ref InstanceProfile, !ImportValue ssm-managed-profile ]
+      # Above does NOT work - an 'AWS::EC2::Instance' (as opposed to a 'AWS::AutoScaling::AutoScalingGroup') does NOT accept a full ARN for the IamInstanceProfile property
+      # IamInstanceProfile: !If [ CustomInstanceProfile, !Ref InstanceProfile, !ImportValue 'iam:mc:ssm-managed-profile:name' ]
+
+      PlacementGroupName: !If [ PlacementGroupIsBlank, !Ref 'AWS::NoValue', !Ref InstancePlacementGroup ]
+      InstanceType: !Ref InstanceType
+      PropagateTagsToVolumeOnCreation: true
+      NetworkInterfaces: 
+        - DeleteOnTermination : "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - !ImportValue Vernova-Immutable-Linux-SG
+            - !ImportValue  Vernova-Bastion-SG
+            - !If [ CreateOwnSG , !Ref EC2StdSG , !Ref AWS::NoValue]
+            - !If [ AdditionalAppSGCondition, !Ref AWS::NoValue , !Ref AdditionalAppSG ]
+            {% if instance.Alb %}
+            - !GetAtt AppInstancesSG.GroupId
+            {% endif %}
+          SubnetId: !ImportValue 'internal-app-az{{zonenumber}}'
+
+      BlockDeviceMappings:
+          - DeviceName: !If [ IsAmazonLinux, "/dev/xvda", "/dev/sda1" ]
+            Ebs:
+              DeleteOnTermination: true
+              VolumeType: gp3
+              Encrypted: true
+              # KmsKeyId: !If [ DataVolKMSKeyIsBlank, !ImportValue 'kms:base:mc-coreami-svc:arn' , !Ref ExtraVolumesKMSKey ]
+    {% if instance.ExtraVolumes is defined %}
+    # attach ExistingVol
+      Volumes:
+    {% for vol in instance.ExtraVolumes %}
+       - Device: {{vol.device}}
+         VolumeId: !Ref EBSDataVol{{loop.index}}Inst{{instNum}}
+    {% endfor %}
+    {% else %}
+    {% endif %}
+      # the attaching of the extra volumes has to happen here, otherwise (if we do it with a separate 'AWS::EC2::VolumeAttachment' resource)
+      # it happens only after LinuxEC2Instance completes creation (in other words it completes cfn-init and it signals success)
+      # one caveat - there seems to be no way to set 'DeleteOnTermination: true' for these ExtraVol1/2/3
+      Tags:
+        # - Key: Name
+        #   Value: !Sub "${AppInstance}-${UAI}-${Role}"
+        - Key: Name
+          Value: !Sub ${Env}-${AppName}-${AppInstance}
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppInstance
+        - Key: env
+          Value: !Ref Env
+        - Key: role
+          Value: !Ref Role
+        - Key: platform
+          Value: !Ref Platform
+        - Key: patch
+          Value: "yes"
+        - Key: CTOCloudOpsManaged
+          Value: !Ref CTOCloudOpsManaged
+        - Key: AppEnvCfgID
+          Value: !Ref AppEnvCfgID
+        - Key: PatchGroup
+          Value: !FindInMap
+          - PatchGroupMap
+          - !Ref Platform
+          - !Ref Env
+        - Key: MaintenanceSchedule
+          Value: !FindInMap
+          - MaintanceWindow
+          - !Ref Platform
+          - !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+      UserData: 
+        'Fn::Base64':
+          'Fn::Join':
+          - "\n"
+          - - "#!/bin/bash"
+
+            - !Sub "Volume=EBSDataVol1Inst{{instNum}}"
+            - !Sub "awsregion=${AWS::Region}"
+            - !Sub "Name=${Env}-${AppName}-${AppInstance}"
+            - !Sub "uai=${UAI}"
+            - !Sub "role=${AppInstance}"
+
+            #- "export InstanceId=$(curl http://169.254.169.254/latest/meta-data/instance-id)"
+            #- "echo 'trying to configure the LDAP Auth'"
+            - ". /etc/os-release"
+            - "echo $ID"
+            - if [ "$ID" = "rhel" ]; then
+            - yum install nvme-cli -y
+            - fi
+            - if [ "$ID" = "centos" ]  || [ "$ID" = "rhel" ] || [ "$ID" = "amzn" ] || [ "$ID" = "ol" ]; then
+            # Start cfn-init
+            - echo "Running cfn-init command"
+            - !Sub "/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LinuxEC2Instance{{instNum}} --configsets default --region ${AWS::Region} \n"
+            # Get result of last command
+            - INIT_STATUS=$?
+            # send result back using cfn-signal
+            - !Sub "/opt/aws/bin/cfn-signal -e $INIT_STATUS --stack ${AWS::StackName} --resource LinuxEC2Instance{{instNum}} --region ${AWS::Region}"
+
+            - elif [ "$ID" = "ubuntu" ]; then
+            - apt-get update -y
+            - apt install python3-pip -y
+            - pip install heat-cfntools
+            - !Sub "cfn-init  -s ${AWS::StackName} -r LinuxEC2Instance{{instNum}} -c default --region ${AWS::Region} \n" 
+            - !Sub "cfn-signal -e $? --stack ${AWS::StackName} --resource LinuxEC2Instance{{instNum}} --region ${AWS::Region}"
+            - else
+            - echo "Other OS Found"
+            - fi
+  {% endfor %}
+
+
+ # Windows
+  {% for n in range(instance.InstancesCount) %}
+  {% set zonenumber = (((loop.index%2) | round(1) | int)+1) %}
+  {% set instNum = loop.index %}
+  WindowsEC2Instance{{instNum}}:
+    Type: AWS::EC2::Instance
+    Condition: IsWindows
+    Metadata:
+      Comment: Bootstrap this Windows instance
+      AWS::CloudFormation::Init:
+        configSets:
+          default: !If
+            - 2faAccessGroupProvided
+            - [ bootstrap ]
+            - [ bootstrap ]
+        bootstrap:
+          files:
+            c:\usr\local\etc\cf_instance:
+              content: source   :cloud_formation
+            c:\cfn\WinWaitHandle.txt:
+              content:
+                Fn::Base64:
+                  Ref: WinWaitHandle{{instNum}}
+            c:\cfn\cfn-hup.conf:
+              content:
+                Fn::Join:
+                - ''
+                - - "[main]\n"
+                  - stack=
+                  - Ref: AWS::StackName
+                  - "\n"
+                  - region=
+                  - Ref: AWS::Region
+                  - "\n"
+            c:\cfn\hooks.d\cfn-auto-reloader.conf:
+              content:
+                Fn::Join:
+                - ''
+                - - "[cfn-auto-reloader-hook]\n"
+                  - 'triggers=post.update'
+                  - 'path=Resources.WindowsEC2Instance{{instNum}}.Metadata.AWS::CloudFormation::Init'
+                  - 'action=cfn-init.exe -v -s '
+                  - Ref: AWS::StackName
+                  - " -r WindowsEC2Instance{{instNum}}"
+                  - " --region "
+                  - Ref: AWS::Region
+                  - "\n"
+
+    #     createAppConfig:
+    #       files:
+    #         c:\temp\appConfig.json:
+    #           content: !Sub '[ { "app": "2fa_netgroups", "groups": [ { "${AppServerAccessGroup}": [ "ALL" ] } ] } ]'
+    #    getConfigScript:
+    #       commands:
+    #         downloadBaseConfigScript:
+    #           command:
+    #              Fn::Sub:
+    #                 - 'powershell.exe Invoke-WebRequest https://s3.${AWS::Region}.amazonaws.com/${CODEBUCKET}/tools/commonscripts/windowsExec.ps1 -OutFile c:\\temp\\windowsExec.ps1'
+    #                 - { CODEBUCKET: !ImportValue "s3:bu:code:name" }
+    #         downloadVolumeFormatScript:
+    #           command:
+    #             Fn::If:
+    #               - IsBaseConfigSpecified
+    #               - Fn::Sub:
+    #                 - 'powershell.exe Invoke-WebRequest "https://s3.${AWS::Region}.amazonaws.com/${CODE_BUCKET}/tools/commonscripts/format-volumes.ps1 -OutFile c:\\temp\\format-volumes.ps1'
+    #                 - - { CODE_BUCKET: !Ref CodeBucket }
+    #               - 'echo "INFO: No need to download format-volumes.ps1"'
+    #         downloadCustomConfigScript:
+    #           command:
+    #             Fn::If:
+    #               - IsCustomConfigSpecified
+    #               - Fn::Sub:
+    #                 - 'powershell.exe Read-S3Object -BucketName ${ARTIFACTS_BUCKET} -Key deploy-artifacts/${UAI}/${AppInstance}/${CustomConfigFile} -File ${CustomConfigFile}'
+    #                 # - 'powershell.exe Invoke-WebRequest https://s3.${AWS::Region}.amazonaws.com/${ARTIFACTS_BUCKET}/deploy-artifacts/${UAI}/${AppInstance}/${CustomConfigFile} -OutFile c:\\temp\\${CustomConfigFile}'
+    #                 - { ARTIFACTS_BUCKET: !ImportValue "s3:mc:artifacts:name" }
+    #               - 'echo "INFO: No custom Config required"'
+    #    runConfigScript:
+    #       commands:
+    #         runVolumeFormatScript:
+    #           command:
+    #             Fn::If:
+    #               - IsBaseConfigSpecified
+    #               - 'powershell.exe c:\\temp\\format-volumes.ps1 *>&1 > c:\\cfn\\log\\cfn-run-volume-format.log'
+    #               - 'echo "INFO: No Volume format required"'
+    #         runBaseConfigScript:
+    #           command:
+    #               Fn::Sub:
+    #                 - 'powershell.exe c:\\temp\\windowsExec.ps1 -CodeBucket ${CODEBUCKET} -CustomerAccountID ${CUSTOMER_ACCT_NUM} -Connected ${CONNECTED}  *>&1 > c:\\cfn\\log\\cfn-run-base-config.log'
+    #                 - { CODEBUCKET: !ImportValue "s3:bu:code:name",
+    #                     CUSTOMER_ACCT_NUM: !ImportValue "mc:customer-account:id",
+    #                     CONNECTED: !ImportValue "mc:account:connectivity" }
+
+    #         runCustomConfigScript:
+    #           command:
+    #             Fn::If:
+    #               - IsCustomConfigSpecified
+    #               - !Sub 'powershell.exe c:\\temp\\${CustomConfigFile} *>&1 > c://cfn//log//cfn-run-custom-config.log'
+    #               - 'echo "INFO: No custom Config required"'
+    Properties:
+      # KeyName: !If [ IsCustomKey, !Ref CustomKey, !Ref 'AWS::NoValue' ]
+      AvailabilityZone: !ImportValue 'AZ{{zonenumber}}Name'
+        # Fn::ImportValue: !Sub 'vpc:${VPCAlias}:az{{zonenumber}}:name'
+      ImageId: !Ref CustomAMI
+      InstanceInitiatedShutdownBehavior: stop
+      IamInstanceProfile: !If [ CustomInstanceProfile, !Ref InstanceProfile, !ImportValue 'iam:mc:ssm-managed-profile:name' ]
+      PlacementGroupName: !If [ PlacementGroupIsBlank, !Ref 'AWS::NoValue', !Ref InstancePlacementGroup ]
+      InstanceType: !Ref InstanceType
+      PropagateTagsToVolumeOnCreation: true
+      NetworkInterfaces: 
+        - DeleteOnTermination : "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - !ImportValue Vernova-Immutable-Windows-SG
+            - !ImportValue  Vernova-Bastion-SG
+            - !If [ CreateOwnSG , !Ref EC2StdSG , !Ref AWS::NoValue]
+            - !If [ AdditionalAppSGCondition, !Ref AWS::NoValue , !Ref AdditionalAppSG ]
+            {% if instance.Alb %}
+            - !GetAtt AppInstancesSG.GroupId
+            {% endif %}
+          SubnetId: !ImportValue 'internal-app-az{{zonenumber}}'
+      BlockDeviceMappings:
+          - DeviceName: !If [ IsAmazonLinux, "/dev/xvda", "/dev/sda1" ]
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              # KmsKeyId: !If [ DataVolKMSKeyIsBlank, !ImportValue 'kms:base:mc-coreami-svc:arn' , !Ref ExtraVolumesKMSKey ]
+
+    {% if instance.ExtraVolumes is defined %}
+      # attach ExistingVol
+      Volumes:
+    {% for vol in instance.ExtraVolumes %}
+       - Device: {{vol.device}}
+         VolumeId: !Ref EBSDataVol{{loop.index}}Inst{{instNum}}
+    {% endfor %}
+    {% else %}
+    {% endif %}
+
+      Tags:
+        - Key: Name
+          Value: !Sub "${AppInstance}-${UAI}-${Role}"
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppInstance
+        - Key: env
+          Value: !Ref Env
+        - Key: role
+          Value: !Ref Role
+        - Key: platform
+          Value: !Ref Platform
+        - Key: patch
+          Value: "yes"
+        - Key: CTOCloudOpsManaged
+          Value: !Ref CTOCloudOpsManaged
+        - Key: AppEnvCfgID
+          Value: !Ref AppEnvCfgID
+        - Key: PatchGroup
+          Value: !FindInMap
+          - PatchGroupMap
+          - !Ref Platform
+          - !Ref Env
+        - Key: MaintenanceSchedule
+          Value: !FindInMap
+          - MaintanceWindow
+          - !Ref Platform
+          - !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+      UserData:
+        Fn::Base64:
+            #Fn::Sub:
+            #    - |
+            #      <powershell>
+            #      # run all the steps defined in metadata configSets
+            #      cfn-init.exe -v --stack ${AWS::StackName} --resource WindowsEC2Instance{{instNum}} --region ${AWS::Region}
+            #      $ERR=$LastExitCode
+            #      # we need to signal right away on error
+            #      If ( $ERR -ne 0 ) {
+            #        $wc = New-Object System.Net.WebClient
+            #        $INSTANCE_ID=$wc.downloadString('http://169.254.169.254/latest/meta-data/instance-id')
+            #        Write-S3Object -BucketName ${ARTIFACTBUCKET} -Folder C:\\cfn\log -KeyPrefix \logs\${UAI}\${AppInstance}\${AWS::StackName}\$INSTANCE_ID -SearchPattern cfn-*.log
+            #        $Base64Value = [IO.File]::ReadAllText("c:\cfn\WinWaitHandle.txt")
+            #        cfn-signal.exe -e $ERR $Base64Value
+            #        Exit 1
+            #      }
+            #      #added cfn singal for limited case
+            #      $IsConnected="${CONNECTED}"
+            #      Write-Host "CONNECTED After configsets $IsConnected"
+            #      if ( $IsConnected -eq 'limited' ) {
+            #      Write-Host "this is limited Account"
+            #      # singal will be in widnowsExec.ps1 file
+            #      }else{
+            #      # schedule a one-time task to signal AFTER the reboot performed by joining CloudAD
+            #      # invocation of cfn-signal (for successful completion) is now in the script resume-bootstrap.ps1
+            #      $CMDTORUN="powershell.exe -file 'C:\Temp\resume-bootstrap.ps1' -group ${AppServerAccessGroup}"
+            #      schtasks /create /tn "MCResumeBootstrap" /sc onstart /delay 0000:30 /rl highest /ru system /tr $CMDTORUN
+            #      # restart the server, so that Joining CloudAD can complete
+            #      Restart-Computer -ComputerName localhost -Force
+            #      }
+            #      </powershell>
+            #      appConfigLocation=deploy-artifacts/${UAI}/${AppInstance}
+            #      Name=${UAI}-${AppInstance}-${Role}
+            #      app=${AppInstance}
+            #      appInstance=${AppInstance}
+            #      UAI=${UAI}
+            #      role=${Role}
+            #      env=${Env}
+            #      appKey=deploy-artifacts/${UAI}/${AppInstance}/${Role}
+            #      s3path=s3://${ARTIFACTBUCKET}/deploy-artifacts/${UAI}/${AppInstance}/${Role}
+            #      artifactbucket=${ARTIFACTBUCKET}
+            #      codebucket=${CODEBUCKET}
+            #      AppServerAccessGroup=${AppServerAccessGroup}
+            #      ad_user_groups=${AppServerAccessGroup}
+            #    # - { ARTIFACTBUCKET: !ImportValue "s3:mc:artifacts:name",
+            #    #     CODEBUCKET: !ImportValue "s3:bu:code:name" ,
+            #    #     CONNECTED: !ImportValue "mc:account:connectivity" }
+            #    - { ARTIFACTBUCKET: "xyx",
+            #        CODEBUCKET: "abc",
+            #        CONNECTED: "yes" }
+            #    # - { ARTIFACTBUCKET: !ImportValue "s3:mc:artifacts:name",
+            #    #     CODEBUCKET: !ImportValue "s3:bu:code:name" }
+          Fn::Join:
+          - ''
+          - - "<powershell>\n"
+            - !Sub "cfn-init.exe -v --stack ${AWS::StackName} --resource WindowsEC2Instance{{instNum}} --region ${AWS::Region} \n"
+            - '$Base64Value = [IO.File]::ReadAllText("c:\cfn\WinWaitHandle.txt")'
+            - "\n"
+            - !Sub  "cfn-signal.exe -e $lastExitCode $Base64Value \n"
+            - "</powershell>\n"
+  {% endfor %}
+
+  {% for n in range(instance.InstancesCount) %}
+  {% set instNum = loop.index %}
+  WinWaitHandle{{instNum}}:
+    Condition: IsWindows
+    Type: AWS::CloudFormation::WaitConditionHandle
+ 
+  WinWaitCondition{{instNum}}:
+    Condition: IsWindows
+    Type: AWS::CloudFormation::WaitCondition
+    DependsOn: WindowsEC2Instance{{instNum}}
+    Properties:
+      Handle: !Ref WinWaitHandle{{instNum}}
+      Timeout: '3600'
+  {% endfor %}
+
+ # instance SG
+  EC2StdSG:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateOwnSG
+    Properties:
+      GroupName: !Sub "app-${UAI}-${AppInstance}-${Env}-${Role}-std-EC2-SG-1"  #original GroupName: !Sub "${AppInstance}-${UAI}-${Role}-std-EC2-SG"
+      GroupDescription: !Sub "Standard SG for ${Env} ${Role} tier of ${AppInstance} app"
+      VpcId: !ImportValue 'vpcid'      
+      Tags:
+          - Key: Name
+            Value: !Sub "${AppInstance}-${UAI}-${Role}-std-SG"
+          - Key: uai
+            Value: !Ref UAI
+          - Key: app
+            Value: !Ref AppInstance
+          # - Key: assetid
+            # Value: !Ref AssetId
+          - Key: env
+            Value: !Ref Env
+          - Key: role
+            Value: !Ref Role
+          - Key: Stack_ID
+            Value: !Sub ${AWS::StackId}
+          - Key: Stack_Name
+            Value: !Sub ${AWS::StackName}
+
+      # disable all outgoing traffic by default. A 'stitch' component will enable the outbound traffic to eventual 'downstream' components like RDS
+      SecurityGroupEgress:
+      - CidrIp: 127.0.0.1/32
+        IpProtocol: "-1"
+        Description: 'Disable outgoing traffic by default. If we leave the SecurityGroupEgress rules blank by default they get replaced with an allow all rule'
+
+ # LoadBalancer
+  {% if instance.Alb %}
+  AppLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "app-${UAI}-${AppInstance}-${Role}-${Env}"
+      Scheme: !Ref Scheme
+      Type: application
+      SecurityGroups:
+        - !Ref AppLbStdSG
+        - !If
+            - IsFrontendLB
+            - !If
+              - FrontEndAcceptsOnlyFromImpervaWaf
+              - !ImportValue 'Vernova-Imperva-SG'
+              - !ImportValue 'Vernova-Immutable-Linux-SG'
+            - !Ref 'AWS::NoValue'
+
+      Subnets:
+        Fn::If:
+            - IsFrontendLB
+            - 
+                - !ImportValue 'internal-app-az1'
+                - !ImportValue 'internal-app-az2'
+               
+            - 
+                - !ImportValue 'internal-app-az1'
+                - !ImportValue 'internal-app-az2'
+
+      LoadBalancerAttributes:
+        - Key: routing.http2.enabled
+          Value: !Ref LBEnableHTTP2
+       # - Key: access_logs.s3.enabled
+       #   Value: 'true'
+       # - Key: access_logs.s3.bucket
+       #   Value: !ImportValue 's3:mc:logs-lb:name'
+       # - Key: access_logs.s3.prefix
+       #   Value: !Sub 'raw/${UAI}/${AppInstance}/${Role}'
+        - Key: idle_timeout.timeout_seconds
+          Value: !Ref LBIdleTimeout
+      Tags:
+        - Key: Name
+          Value: !Sub "app-${UAI}-${AppInstance}-${Role}-${Env}-lb"
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppInstance
+        - Key: env
+          Value: !Ref Env
+        - Key: role
+          Value: !Ref Role
+        - Key: cloud-hosting-waf-base-ruleset
+          Value: !If
+                - IsWAFAssociationEnabled
+                - 'true'
+                - !ImportValue 'mc:account:attach-aws-waf'
+        - Key: frontend-dnsname
+          Value: !Ref FQDN
+        - Key: role-type
+          Value: !Ref RoleType
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  AppLBTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      # if we set the name we cannot replace the TargetGroup if the BackendPort or BackendProtocol are changed. You get an error like 'CloudFormation cannot update a stack when a custom-named resource requires replacing. Rename cat-dev-UAI2004397-app and update the stack again.'
+      # if we do NOT set a name it gets a name automatically, but if we change AppInstance value, an update fails with 'AppLBListener AWS::ElasticLoadBalancingV2::Listener UPDATE_FAILED Target group 'arn:aws:elasticloadbalancing:us-east-1:761130031732:targetgroup/test-AppLB-V512H7CJ08W2/d62488562841475c' cannot be associated with more than one load balancer'
+      #  in other words it decides it should NOT re-create the TargetGroup
+      # we will leave it with an auto assigned name, since this seems to be the less prevalent case
+      Name: !If [ doAssignNameToTG, !Sub "app-${UAI}-${AppInstance}-${Role}-${Env}", !Ref 'AWS::NoValue' ]
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath:  !Ref LBHealthCheckFilePath
+      # the HealthCheckPort needs to be specified only if it is different than the Port
+      #HealthCheckPort: !Ref BackendPort
+      HealthCheckProtocol: !Ref LBBackendProtocol
+      HealthCheckTimeoutSeconds:  5
+      HealthyThresholdCount:  3
+      UnhealthyThresholdCount:  5
+      TargetType: instance
+      Targets:
+    {% for n in range(instance.InstancesCount) %}
+            - Id:  !If [ IsLinux, !Ref LinuxEC2Instance{{loop.index}}, !Ref WindowsEC2Instance{{loop.index}} ]
+    {% endfor %}
+      TargetGroupAttributes:
+        !If
+         - doEnableCustomStickiness
+         -  - Key: deregistration_delay.timeout_seconds
+              Value: !Ref LBStickinessDeregistrationDelayTimeoutSeconds
+            - Key: stickiness.enabled
+              Value: !If [ doEnableStickiness , 'true' , 'false' ]
+            - Key: stickiness.type
+              Value: lb_cookie
+            - Key: slow_start.duration_seconds
+              Value: !Ref LBStickinessSlowStartDurationSeconds
+            - Key: stickiness.lb_cookie.duration_seconds
+              Value: !Ref LBStickinessLBCookieDurationSeconds
+
+         -  - Key: deregistration_delay.timeout_seconds
+              Value: !Ref LBStickinessDeregistrationDelayTimeoutSeconds
+            - Key: stickiness.enabled
+              Value: !If [ doEnableStickiness , 'true' , 'false' ]
+            # - Key: stickiness.type
+            #   Value: lb_cookie
+            - Key: slow_start.duration_seconds
+              Value: !Ref LBStickinessSlowStartDurationSeconds
+            # added for custom cookie
+            - Key: stickiness.type
+              Value: app_cookie
+            - Key: stickiness.app_cookie.cookie_name
+              Value: !Ref LBCustomCookieName
+            - Key: stickiness.app_cookie.duration_seconds
+              Value: !Ref LBStickinessLBCookieDurationSeconds
+      Matcher:
+        HttpCode: '200-403'
+      Port: !Ref LBBackendPort
+      Protocol: !Ref LBBackendProtocol
+      VpcId: !ImportValue 'vpcid' 
+      Tags:
+       - Key: Name
+         Value: !Sub "app-${UAI}-${AppInstance}-${Env}-${Role}-tg"
+       - Key: uai
+         Value: !Ref UAI
+       - Key: app
+         Value: !Ref AppInstance
+       - Key: env
+         Value: !Ref Env
+       - Key: role
+         Value: !Sub "${Role}lb"
+       - Key: frontend-dnsname
+         Value: !Ref FQDN
+       - Key: role-type
+         Value: !Ref RoleType
+       - Key: Stack_ID
+         Value: !Sub ${AWS::StackId}
+       - Key: Stack_Name
+         Value: !Sub ${AWS::StackName}
+
+  AppLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AppLBTG
+      LoadBalancerArn: !Ref AppLB
+      Port: !Ref LBExposedPort
+      Protocol: !If [ DoesNotHaveSSLCert, 'HTTP', 'HTTPS'  ]
+      Certificates:
+        - CertificateArn: !If [ DoesNotHaveSSLCert,  !Ref 'AWS::NoValue', !Ref LBExposedURLSSLCertARN ]
+
+  AppLBListenerRedirectToHTTPS:
+    Condition: redirectPlainHttpToHTTPS
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref AppLB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - RedirectConfig:
+            Host: "#{host}"
+            Path: "/#{path}"
+            Port: '443'
+            Protocol: "HTTPS"
+            Query: "#{query}"
+            StatusCode: HTTP_301
+          Type: redirect
+
+  # Define the SG for the ALB
+  AppLbStdSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue 'vpcid' 
+      GroupName: !Sub "app-${UAI}-${AppInstance}-${Env}-${Role}lb-std-SG"
+      GroupDescription: !Sub "Standard SG for ${Env} ${Role} lb tier of ${AppInstance}"
+      Tags:
+        - Key: Name
+          Value: !Sub "app-${UAI}-${AppInstance}-${Env}-${Role}lb-std-SG"
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppInstance
+        - Key: env
+          Value: !Ref Env
+        - Key: role
+          Value: !Sub "${Role}lb"
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+      # do NOT allow any incoming traffic to the ALB by default
+      # the stitching component will alter this SG to allow connectivity from the web tier
+      SecurityGroupIngress: []
+
+      # this is high-risk, so we need to disable all outgoing traffic by default
+      # if we leave the SecurityGroupEgress rules blank by default they get replaced with a 'allow all' rule
+      # however we need to allow traffic to the instance itself, so we need to do what with a separate AWS::EC2::SecurityGroupEgress to avoid a circular dependency
+      SecurityGroupEgress:
+        - CidrIp: 127.0.0.1/32
+          IpProtocol: "-1"
+          # single or double quotes are not allowed in the value of Description
+          Description: 'Disable outgoing traffic by default. If we leave the SecurityGroupEgress rules blank by default they get replaced with an allow all rule'
+
+  # we need to separate the rules from the SG, so we do not create a circular reference. See http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-security-group-egress.html
+  # Define the SG for the EC2 instances behind the ELB
+  AppInstancesSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "app-${UAI}-${AppInstance}-${Env}-${Role}-std-lb-SG"
+      GroupDescription: !Sub "Standard SG for ${Env} ${Role} tier of ${AppInstance} ${UAI}"
+      VpcId: !ImportValue 'vpcid' 
+      Tags:
+        - Key: Name
+          Value: !Sub "app-${UAI}-${AppInstance}-${Env}-${Role}-std-lb-SG"
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppInstance
+        - Key: env
+          Value: !Ref Env
+        - Key: role
+          Value: !Ref Role
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+      # inbound rules - the server accepts connections only from its ALB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref LBBackendPort
+          ToPort: !Ref LBBackendPort
+          SourceSecurityGroupId: !Ref AppLbStdSG
+          Description: !Sub 'Accept connections on port ${LBBackendPort}/tpc only from the LB'
+
+        # 12-Apr-2021 - new stuff for host based routing Jinja options
+        {% if instance.Alb.Routing is defined %}
+          {% for route in instance.Alb.Routing %}
+        - IpProtocol: TCP
+          FromPort: {{ route.Port }}
+          ToPort: {{ route.Port }}
+          SourceSecurityGroupId: !Ref AppLbStdSG
+          Description: 'Allow ALB to connect on port {{ route.Port }}/tpc'
+          {% endfor %}  # end for route in instance.Alb.Routing
+        {% endif %}     # end if instance.Alb.Routing
+
+      # this is high-risk, so we need to disable all outgoing traffic by default
+      # if we leave the SecurityGroupEgress rules blank by default they get replaced with a 'allow all' rule
+      # however we need to allow traffic to the instance itself, so we need to do what with a separate AWS::EC2::SecurityGroupEgress to avoid a circular dependency
+      SecurityGroupEgress:
+        - CidrIp: 127.0.0.1/32
+          IpProtocol: "-1"
+          # single or double quotes are not allowed in the value of Description
+          # Valid descriptions are strings less than 256 characters from the following set:  a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*
+          Description: 'Disable outgoing traffic by default. If we leave the SecurityGroupEgress rules blank by default they get replaced with an allow all rule'
+
+  # Define the SG for the ALB
+  LBOutboundRule:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: tcp
+      FromPort: !Ref LBBackendPort
+      ToPort: !Ref LBBackendPort
+      GroupId: !GetAtt AppLbStdSG.GroupId
+      DestinationSecurityGroupId: !GetAtt AppInstancesSG.GroupId
+      Description: !Sub 'Allow outbound connections to port ${LBBackendPort}/tpc to the instances'
+
+  # 12-Apr-2021 - new stuff for host based routing Jinja options
+  {% if instance.Alb.Routing is defined %}
+    {% for route in instance.Alb.Routing %}
+  LBRoutingTG{{loop.index}}:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !If [ doAssignNameToTG, !Sub "app-${UAI}-${AppInstance}-${Env}-{{ route.Port }}", !Ref 'AWS::NoValue' ]
+      Port: {{ route.Port }}
+      Protocol: {{ route.Protocol if route.Protocol else "!Ref LBBackendProtocol" }}
+      TargetType: instance
+      Targets:
+        {% if route.Targets is defined %}
+        {% for target in route.Targets %}
+          - Id: !If [ IsLinux, !Ref LinuxEC2{{ target }}, !Ref WindowsEC2{{ target }} ]
+        {% endfor %}
+        {% else %}
+        {% for n in range(instance.InstancesCount) %}
+          - Id: !If [ IsLinux, !Ref LinuxEC2Instance{{loop.index}}, !Ref WindowsEC2Instance{{loop.index}} ]
+        {% endfor %}
+        {% endif %}
+      TargetGroupAttributes:
+        !If
+         - doEnableCustomStickiness
+         -  - Key: deregistration_delay.timeout_seconds
+              Value: !Ref LBStickinessDeregistrationDelayTimeoutSeconds
+            - Key: stickiness.enabled
+              Value: !If [ doEnableStickiness , 'true' , 'false' ]
+            - Key: stickiness.type
+              Value: lb_cookie
+            - Key: slow_start.duration_seconds
+              Value: !Ref LBStickinessSlowStartDurationSeconds
+            - Key: stickiness.lb_cookie.duration_seconds
+              Value: !Ref LBStickinessLBCookieDurationSeconds
+
+         -  - Key: deregistration_delay.timeout_seconds
+              Value: !Ref LBStickinessDeregistrationDelayTimeoutSeconds
+            - Key: stickiness.enabled
+              Value: !If [ doEnableStickiness , 'true' , 'false' ]
+            # - Key: stickiness.type
+            #   Value: lb_cookie
+            - Key: slow_start.duration_seconds
+              Value: !Ref LBStickinessSlowStartDurationSeconds
+            # added for custom cookie
+            - Key: stickiness.type
+              Value: app_cookie
+            - Key: stickiness.app_cookie.cookie_name
+              Value: !Ref LBCustomCookieName
+            - Key: stickiness.app_cookie.duration_seconds
+              Value: !Ref LBStickinessLBCookieDurationSeconds
+      VpcId: !ImportValue 'vpcid' 
+      Tags:
+       - Key: Name
+         Value: !Sub "app-${UAI}-${AppInstance}-${Env}-${Role}-tg"
+       - Key: uai
+         Value: !Ref UAI
+       - Key: app
+         Value: !Ref AppInstance
+       - Key: env
+         Value: !Ref Env
+       - Key: role
+         Value: !Sub "${Role}lb"
+       - Key: frontend-dnsname
+         Value: !Ref FQDN
+       - Key: role-type
+         Value: !Ref RoleType
+       - Key: Stack_ID
+         Value: !Sub ${AWS::StackId}
+       - Key: Stack_Name
+         Value: !Sub ${AWS::StackName}
+
+     # health check settings
+      {% if route.HealthCheck is defined %}
+      HealthCheckPort: '{{ route.HealthCheck.Port | default(route.Port) }}'
+      HealthCheckProtocol: {{ route.HealthCheck.Protocol if route.HealthCheck.Protocol else (route.Protocol if route.Protocol else "!Ref LBBackendProtocol") }}
+      HealthCheckIntervalSeconds: {{ route.HealthCheck.IntervalSeconds | default('30') }}
+      HealthCheckTimeoutSeconds: {{ route.HealthCheck.TimeoutSeconds | default('5') }}
+      HealthCheckPath: {{ route.HealthCheck.Path if route.HealthCheck.Path else (route.Path if route.Path else "!Ref LBHealthCheckFilePath") }}
+      HealthyThresholdCount: {{ route.HealthCheck.HealthyThresholdCount | default('3') }}
+      UnhealthyThresholdCount: {{ route.HealthCheck.UnhealthyThresholdCount | default('5') }}
+      Matcher:
+        HttpCode: {{ route.HealthCheck.MatcherHttpCodes | default('200-403') }}
+      {% else %}
+      HealthCheckPort: '{{ route.Port }}'
+      HealthCheckProtocol: {{ route.Protocol if route.Protocol else "!Ref LBBackendProtocol" }}
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckPath: {{ route.Path if route.Path else "!Ref LBHealthCheckFilePath" }}
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 5
+      Matcher:
+        HttpCode: '200-403'
+      {% endif %}  # end if route.HealthCheck is defined
+
+  LBRoutingRule{{loop.index}}:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref AppLBListener   # TODO: or !Ref AppLBListnerForwardToBackEnd, or maybe we need to create a 3rd listener?
+      Priority: {{ route.Priority | default(loop.index) }}
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref LBRoutingTG{{loop.index}}
+      Conditions: {{ route.Conditions }}
+
+  LBOutboundSGRule{{loop.index}}:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: tcp
+      FromPort: {{ route.Port }}
+      ToPort: {{ route.Port }}
+      GroupId: !GetAtt AppLbStdSG.GroupId
+      DestinationSecurityGroupId: !GetAtt AppInstancesSG.GroupId
+      Description: 'Allow outbound connections to port {{ route.Port }}/tpc to the instances'
+
+    {% endfor %}  # end for route in instance.Alb.Routing
+  {% endif %}     # end if instance.Alb.Routing
+  {% endif %}     # end if instance.Alb
+
+ # EFS
+  # Alter the SG created by the EFS component to allow the traffic from this set of servers we create here
+  EFSInboundRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: DoMountEFS
+    Properties:
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      GroupId: !Ref EFSMountTargetSecurityGroup
+      SourceSecurityGroupId: !GetAtt EC2StdSG.GroupId
+      Description: !Sub 'Allow inbound connection to the EFS file system from EC2 for ${UAI}-${AppInstance}-${Role}'
+
+  # alter the EC2StdSG to allow outbound to the EFS SG
+  EFSOutboundRule:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: DoMountEFS
+    Properties:
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      GroupId: !GetAtt EC2StdSG.GroupId
+      DestinationSecurityGroupId: !Ref EFSMountTargetSecurityGroup
+      Description: 'Allow outbound connections to port 2049/tpc to the EFS file system'
+
+# stack output(s)
+Outputs:
+  EC2StdSG:
+    Condition: CreateOwnSG
+    Description: The standard security group
+    Value: !Ref EC2StdSG
+
+  {% for n in range(instance.InstancesCount) %}
+  {% set zonenumber = (((loop.index%2) | round(1) | int)+1) %}
+  {% set instNum = loop.index %}
+  EC2ID{{instNum}}:
+    Description: The AWS EC2 instance{{instNum}} id
+    Value: !If [ IsLinux, !Ref LinuxEC2Instance{{instNum}}, !Ref WindowsEC2Instance{{instNum}} ]
+
+  EC2IPAddress{{instNum}}:
+    Description: IP address of the EC2 instance{{instNum}}
+    Value: !If [ IsLinux, !GetAtt LinuxEC2Instance{{instNum}}.PrivateIp, !GetAtt WindowsEC2Instance{{instNum}}.PrivateIp ]
+
+  {% endfor %}
+
+  {% if instance.Alb %}
+  AppLBDNS:
+    Description: DNS name for the LB Endpoint created with this template
+    Value: !GetAtt AppLB.DNSName
+  {% endif %}
+
+  RoleType:
+    Description: Is this a frontend or a backend/auth-on-app ?
+    Value: !Ref RoleType
+
+  FQDN:
+    Description: Fully qualified domain name for the front-end for this application
+    Value: !Ref FQDN

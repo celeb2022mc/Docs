@@ -1,0 +1,95 @@
+---
+## History
+ # 01-Oct-2024: Initial version for non-routable IP space
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create NACL for VDI subnets
+
+Resources:
+  OtherNacl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      Tags:
+      - Key: Name
+        Value: private-vdi-nacl
+      VpcId: !ImportValue vpcid
+
+
+  #Allow all inbound from 10.x
+  Ingress1000:
+    Properties:
+      CidrBlock: 10.0.0.0/8
+      Egress: false
+      NetworkAclId:
+        Ref: OtherNacl
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: 1000
+    Type: AWS::EC2::NetworkAclEntry
+
+  #Allow inbound TCP from quad 0 on ephemeral ports
+  Ingress1500:
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId:
+        Ref: OtherNacl
+      Protocol: 6
+      PortRange:
+        From: 1024
+        To: 65535
+      RuleAction: allow
+      RuleNumber: 1500
+    Type: AWS::EC2::NetworkAclEntry
+
+####### Outbound Rules ########
+
+  #Allow all outbound to 10.x
+  Egress101:
+    Properties:
+      CidrBlock: 10.0.0.0/8
+      Egress: true
+      NetworkAclId:
+        Ref: OtherNacl
+      Protocol: -1
+      RuleAction: allow
+      RuleNumber: 101
+    Type: AWS::EC2::NetworkAclEntry
+
+
+  #Allow all outbound to quad 0 for HTTPS
+  Egress103:
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId:
+        Ref: OtherNacl
+      Protocol: 6
+      PortRange:
+        From: 443
+        To: 443
+      RuleAction: allow
+      RuleNumber: 103
+    Type: AWS::EC2::NetworkAclEntry
+
+  #Allow all outbound to quad 0 for HTTP
+  Egress104:
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId:
+        Ref: OtherNacl
+      Protocol: 6
+      PortRange:
+        From: 80
+        To: 80
+      RuleAction: allow
+      RuleNumber: 104
+    Type: AWS::EC2::NetworkAclEntry
+
+Outputs:
+  NaclApplication:
+    Description: Export NACL ID for VDI Subnets
+    Value: !Ref OtherNacl
+    Export:
+      Name: private:vdi:nacl:id

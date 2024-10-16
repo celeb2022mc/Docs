@@ -1,0 +1,59 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This stack creates the option groups that are necessary for builds of RDS oracle instances.
+              It must be created prior to any RDS Instances
+              Last version 23-Oct-2020
+Parameters:
+  uai:
+    Type: String
+    Description: The uai of the application being charged for usage.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in upper case followed by 7 digits
+    AllowedPattern: '^(uai|uai)[0-9]*$'
+    MinLength: 10
+    MaxLength: 10
+    Default: 'uai3064620'
+  
+Resources: 
+
+  rdsoracleeessloptiongroup19: 
+    Type: 'AWS::RDS::OptionGroup'
+    Properties: 
+      EngineName: 'oracle-ee'
+      MajorEngineVersion: '19'
+      OptionGroupDescription: 'Oracle EE v19 SSL enable option group'
+      OptionGroupName: 'gev-dba-rds-opt-group-oracle-ee-19'
+      OptionConfigurations: 
+        - 
+          OptionName: 'SSL'
+          VpcSecurityGroupMemberships:
+          # all RDS instances must be assigned the common RDS SG
+            - Fn::ImportValue: 'Vernova-Base-RDS-SG'
+          Port: '2484'
+          OptionSettings:
+            - Name: SQLNET.SSL_VERSION
+              Value: '1.2'
+            - Name: SQLNET.CIPHER_SUITE
+              Value: SSL_RSA_WITH_AES_256_CBC_SHA256
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'created_by'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+
+Outputs:
+  rdsoracleeessloptiongroup19:
+    Description: "Oracle EE v19 SSL enable option group"
+    Value: !Ref rdsoracleeessloptiongroup19
+    Export:
+      Name: 'gev-dba:optiongroups:oracle-ee:prod:19'
+
+  # rdsoraclese2ssloptiongroup19:
+  #   Description: "Oracle SE v19 (se2) SSL enable option group"
+  #   Value: !Ref rdsoraclese2ssloptiongroup19
+  #   Export:
+  #     Name: !Sub 'rds:${VPCAlias}:optiongroups:oracle-se2:ssl:19'

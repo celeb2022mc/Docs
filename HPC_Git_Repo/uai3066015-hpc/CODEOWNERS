@@ -1,0 +1,6 @@
+/.github/workflow/ @vernova-cloud-iac/engineering
+/exceptions/ @vernova-cloud-iac/cyber
+/templates/ @vernova-cloud-iac/architects
+/parameters/ @vernova-cloud-iac/architects
+/manifest.yml @vernova-cloud-iac/engineering
+/CODEOWNERS @vernova-cloud-iac/engineering

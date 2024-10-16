@@ -1,0 +1,111 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create extra/custom CF exports
+Parameters:
+ # logical names
+  AZ3Name:
+    Description: AZ3 logical Name
+    Type: String
+
+  AZ4Name:
+    Description: AZ4 logical Name
+    Type: String
+
+  AZ5Name:
+    Description: AZ5 logical Name
+    Type: String
+
+  AZ6Name:
+    Description: AZ6 logical Name
+    Type: String
+
+ # physical ids
+  AZ3ID:
+    Description: AZ3 physical ID
+    Type: String
+
+  AZ4ID:
+    Description: AZ4 physical ID
+    Type: String
+
+  AZ5ID:
+    Description: AZ5 physical ID
+    Type: String
+
+  AZ6ID:
+    Description: AZ6 physical ID
+    Type: String
+
+ # private subnets CIDRs
+  pVDISubnetsCIDR:
+    Description: CIDR for the whole block where the private VDI subnets are
+    Type: String
+
+  pHPCSubnetsCIDR:
+    Description: CIDR for the whole block where the private HPC subnets are
+    Type: String
+
+Conditions:
+  HasNot: !Equals [ 'true', 'false' ]
+
+# dummy (null) resource, never created
+Resources:
+  NullResource:
+    Condition: HasNot
+    Type: 'Custom::NullResource'
+    Properties:
+      ServiceToken: abc # this attribute is required acording to cfn-lint
+
+Outputs:
+ # logical names
+  ExportAZ3Name:
+    Value: !Ref AZ3Name
+    Export:
+      Name: "AZ3Name"
+
+  ExportAZ4Name:
+    Value: !Ref AZ4Name
+    Export:
+      Name: "AZ4Name"
+
+  ExportAZ5Name:
+    Value: !Ref AZ5Name
+    Export:
+      Name: "AZ5Name"
+
+  ExportAZ6Name:
+    Value: !Ref AZ6Name
+    Export:
+      Name: "AZ6Name"
+
+ # physical ids
+  ExportAZ3ID:
+    Value: !Ref AZ3ID
+    Export:
+      Name: "AZ3ID"
+
+  ExportAZ4ID:
+    Value: !Ref AZ4ID
+    Export:
+      Name: "AZ4ID"
+
+  ExportAZ5ID:
+    Value: !Ref AZ5ID
+    Export:
+      Name: "AZ5ID"
+
+  ExportAZ6ID:
+    Value: !Ref AZ6ID
+    Export:
+      Name: "AZ6ID"
+
+ # private subnets CIDRs
+  ExportVDISubnetsCIDR:
+    Value: !Ref pVDISubnetsCIDR
+    Export:
+      Name: 'private:vdi:subnets:cidr'
+
+  ExportHPCSubnetsCIDR:
+    Value: !Ref pHPCSubnetsCIDR
+    Export:
+      Name: 'private:hpc:subnets:cidr'

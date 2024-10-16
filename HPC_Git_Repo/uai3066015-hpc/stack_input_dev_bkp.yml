@@ -1,0 +1,168 @@
+#template_dir: /usr/local/app/ManagedComponents-Nexus/ManagedComponents
+# template_dir: .
+
+common:
+  UAI: uai3066015
+  ENV: dev
+  VPCALIAS: test
+  SSO: 12345678
+  APPNAME: hpc
+  APP_INSTANCE: 'dev'
+
+  AWS_ACCOUNT: 'vn-hpc-dev'
+
+
+#Python script will replace the values for uai, env and Builder
+stack_defaults:
+  tags:
+    uai: uai3066015
+    env: dev
+
+    Builder: vn-builder
+  s3:
+    bucket: vn-hpc-dev-artifacts
+    prefix: deploy-artifacts/uai3066015/cft
+    region: us-east-1
+
+
+region_aliases:
+  us1: us-east-1
+
+stacks:
+  us1:
+    s3-bucket-hpc:
+      template: ../AWS-Patterns/s3-bucket/s3-bucket.v0.2.cf.yml
+      params:
+        AppName: { "common": "APPNAME" }
+        AppInstance: { "common": "APP_INSTANCE" }
+        UAI: { "common": "UAI" }
+        Env: { "common": "ENV" }
+        VersioningConfiguration: Suspended
+        ObjectName: hpc
+
+    # rhel-ec2-test:
+    #    template: templates/static-v4.cf-j2.yml
+    #    # template: ../AWS-Patterns/app-patterns-ec2/static-v3.cf-j2.yml
+    #    params:
+    #      #Common
+    #      UAI: { "common": "UAI" }
+    #      AppName: { "common": "APPNAME" }
+    #      AppInstance: hpc
+    #      Env: { "common": "ENV" }
+    #      #NixGroupApp: 'abc-test-group'
+    #      #VPCAlias: { "common": "VPCALIAS"}
+    #      #Basic
+    #      CustomAMI: 
+    #        latest_ami:
+    #          owners: '057064532517'
+    #          filters:
+    #            name: GESOS-AWS-BASE_RHEL8*
+    #      InstanceProfile: vn-default-ssm-access-profile
+    #      InstanceType: m5.xlarge
+    #      Role: lx
+    #      RoleType: backend
+    #      COS: RHEL8
+    #      AppServerAccessGroup: 'CA_AWSENTC_VN_NC_HPC_ADMIN_NONPROD' 
+    #      # ALB Parameters:
+    #      #LBExposedPort: 443
+    #      #LBBackendPort: 443
+    #      #LBBackendProtocol: HTTPS
+    #      #LBHealthCheckFilePath: '/status/status.xhtml'
+    #      #LBIdleTimeout: 3000
+    #      #LBExposedURLSSLCertARN: 'arn:aws:acm:us-east-1:445567079976:certificate/7d457b55-e295-4cee-9fcc-4c04f8310c9e'
+    #      # #  acm_certificate: 'stage.map.gevernova.net'
+    #      #LBPlainHTTPListenerBehaviour: redirect
+    #      #Custom script
+    #     # CustomConfigFile: 'myscript.sh'
+    #    jinjaparams:
+    #      InstancesCount: 1
+    #      Alb: false
+
+    # *******************************************
+    # create ec2s Resources with Jinja Template
+    # *******************************************
+    ec2:
+      template: templates/static-v4.cf-j2.yml
+      # template: ../AWS-Patterns/app-patterns-ec2/static-v3.cf-j2.yml
+      params:
+        #Common
+        UAI: { "common": "UAI" }
+        AppName: { "common": "APPNAME" }
+        AppInstance: hpc-vdi
+        Env: { "common": "ENV" }
+        #NixGroupApp: 'abc-test-group'
+        #VPCAlias: { "common": "VPCALIAS"}
+        #Basic
+        CustomAMI:  ami-010210c87b24fc390
+          # latest_ami:
+          #   owners: '057064532517'
+          #   filters:
+          #     name: GESOS-AWS-BASE_RHEL8*
+        InstanceProfile: vn-default-ssm-access-profile
+        InstanceType: m6a.large
+        Role: lx
+        RoleType: backend
+        COS: Windows10
+        AppServerAccessGroup: 'DEL_GE020000000_VerCld_Pwr_VDI_Users_Group' 
+        # ALB Parameters:
+        # LBExposedPort: 443
+        # LBBackendPort: 443
+        # LBBackendProtocol: HTTPS
+        # LBHealthCheckFilePath: '/status/status.xhtml'
+        # LBIdleTimeout: 3000
+        # LBExposedURLSSLCertARN: 'arn:aws:acm:us-east-1:445567079976:certificate/7d457b55-e295-4cee-9fcc-4c04f8310c9e'
+         #  acm_certificate: 'stage.map.gevernova.net'
+        # LBPlainHTTPListenerBehaviour: redirect
+        #Custom script
+       # CustomConfigFile: 'myscript.sh'
+        jinjaparams:
+         InstancesCount: 1
+         Alb: false
+      #     Routing:
+      #       - Port: 443                       # Port is required
+      #         Priority: 1                    # if not specified it will follow the order of this list
+      #         Protocol: HTTPS                 # if not specified, it will default to params.LBBackendProtocol (which in turn defaults to 'HTTPS')
+      #         Conditions:                     # required - should match the AWS definition as specified at https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-elasticloadbalancingv2-listenerrule-rulecondition.html
+      #           - Field: path-pattern
+      #            #  HostHeaderConfig:
+      #             Values:
+      #                 - '/'
+      #         HealthCheck:
+      #           Path: '/'                    # if not specified, it will default to params.LBHealthCheckFilePath (which in turn defaults to '/healthcheck/monitor.html')
+                # specify one if it is different than the default specified above under params.
+                #Port: 80                      # specify one if it is different than the traffic Port
+                #Protocol: HTTP                # specify one if it is different than the traffic Protocol
+        
+                # optional 'advanced' params
+                # IntervalSeconds: 15           # specify only if different than default of 30
+                # TimeoutSeconds: 6             # specify only if different than default of 5
+                # HealthyThresholdCount: 2      # specify only if different than default of 3
+                # UnhealthyThresholdCount: 6    # specify only if different than default of 5
+                # MatcherHttpCodes: '200-499'   # specify only if different than default of '200-403'
+             #  Actions:
+             #   - Type: 'authenticate-oidc'
+             #     AuthenticateOidcConfig:
+             #       OnUnauthenticatedRequest: 'authenticate'
+             #       Issuer: 'https://fssfed.ge.com/fss'
+             #       AuthorizationEndpoint: 'https://fssfed.ge.com/fss/as/authorization.oauth2'
+             #       TokenEndpoint: 'https://fssfed.ge.com/fss/as/token.oauth2'
+             #       UserInfoEndpoint: 'https://fssfed.ge.com/fss/idp/userinfo.openid'
+             #       ClientId: uai3066015_dev_hpc_oidc
+             #       ClientSecret: uai3066015_dev_hpc
+             #       Scope: 'openid profile'
+             #     Order: 1
+             #   - Type: forward
+             #     TargetGroupArn: '!Ref LBRoutingTG1'
+             #     Order: 2
+   
+           #  - Port: 8080
+           #    #Priority: 2                    # if not specified it will follow the order of this list
+           #    Targets:                        # optional list of Instance1, Instance2, etc. If not specified it will target all instances we create
+           #      - Instance1
+           #    Protocol: HTTP                  # if not specified, it will default to HTTPS
+           #    Conditions:                     # required - should match the AWS definition
+           #      - Field: host-header
+           #        HostHeaderConfig:
+           #          Values: [ 'qa-pc-dna.power.ge.com', 'qa-pc-dna1.power.ge.com' ]
+
+

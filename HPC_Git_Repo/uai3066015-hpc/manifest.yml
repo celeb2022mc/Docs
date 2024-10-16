@@ -1,0 +1,10 @@
+---
+dev: #Github Branch name (app env name) 
+  account: 
+    name: vn-hpc-dev
+    account_id: 445567079976
+    region: us-east-1
+  pattern-release: release1.3.7 # This is latest pattern release 
+  
+uai: uai3066015
+

@@ -1,0 +1,16 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CF Template to create the gateway vpc endpoint.
+Parameters:
+  AWSService:
+    Type: String
+    Default: s3
+Resources:
+  EndPoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:    
+        - !ImportValue rt-EpId
+        - !ImportValue rt-PrivateId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.${AWSService}
+      VpcId: !ImportValue vpcid

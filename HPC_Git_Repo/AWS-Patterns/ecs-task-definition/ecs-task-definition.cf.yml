@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  AppName:
+    Type: String
+    MaxLength: 25
+    MinLength: 3
+    Description: Name of the application, keep to 15 characters or less
+  TaskName:
+    Type: String
+    Description: Name of the Task Definition, the Value should be same as Appinstance provided to while creating a role
+    Default: appserver-task
+  # TaskRoleArn:
+  #   Type: String
+  #   Description: ARN of the Task Role
+  # ExecutionRoleArn:
+  #   Type: String
+  #   Description: ARN of the Execution Role
+  ContainerCpu:
+    Type: Number
+    Default: 2048
+    Description: The number of cpu units used by the task. 1024 is 1 CPU
+    AllowedValues: [256, 512, 1024, 2048, 4096]
+  ContainerMemory:
+    Type: Number
+    Default: 4096
+    Description: How much memory in megabytes to give the container
+  ImageURI:
+    Type: String
+    Description: "The image used to start a container.  Ex: repository-url/image"
+  ContainerPort:
+    Type: Number
+    Default: 8080
+    Description: the port number on which application is running in Docker
+  SecretARN:
+    Type: String
+    Description: SecretManager ARN of the Database which you are trying to connect.
+
+Resources:
+  ECSTaskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "app-${UAI}/${AppName}/${Env}/${TaskName}"
+      RetentionInDays: 7
+      
+  ECSTaskdefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: ECSTaskLogGroup
+    Properties:
+      Cpu: !Ref "ContainerCpu"
+      Memory: !Ref "ContainerMemory"
+      Family: !Sub "${UAI}-${AppName}-${Env}-${TaskName}"
+      TaskRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/app/${UAI}/${AppName}-ecs-tasks-${TaskName}-${Env}"
+      NetworkMode: "awsvpc"
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/app/${UAI}/${AppName}-ecs-tasks-exe-${Env}"
+      ContainerDefinitions:
+        - Name: !Ref "TaskName"
+          Essential: true
+          Image: !Ref "ImageURI"
+          PortMappings:
+            - ContainerPort: !Ref "ContainerPort"
+              Protocol: tcp
+          Secrets:
+            - Name: DATABASE_CREDENTIALS
+              ValueFrom: !Ref "SecretARN"
+          Environment:
+            - Name: "uai"
+              Value: !Ref UAI
+            - Name: "app"
+              Value: !Ref AppName
+            - Name: "env"
+              Value: !Ref Env
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ECSTaskLogGroup
+              awslogs-region: !Sub "${AWS::Region}"
+              awslogs-stream-prefix: !Sub "${TaskName}-${ContainerPort}"
+
+Outputs:
+  ECSTaskDefinitionARN:
+    Description: Task Definition ARN
+    Value: !Ref ECSTaskdefinition
+    

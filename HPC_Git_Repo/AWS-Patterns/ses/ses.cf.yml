@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create SES
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+    
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+    
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  
+  Email:
+    Type: String
+    Description: Enter Email Address
+    
+  ConfigurationSetName:
+    Type: String
+    Description: The name to use for the service SES ConfigurationSet
+   
+  HtmlPart:
+    Type: String
+    Description: The HTML body of the email.
+  
+  SubjectPart:
+    Type: String
+    Description: The subject line of the email.
+    
+  TemplateName:
+    Type: String
+    Description: The name of the template.
+    
+  TextPart:
+    Type: String
+    Description: The email body that is visible to recipients whose email clients do not display HTML content.
+    
+Resources:
+  MySESEmailIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref Email
+      ConfigurationSetAttributes:
+         ConfigurationSetName: !Ref MySESConfigurationSet
+      
+  MySESConfigurationSet:
+    Type: AWS::SES::ConfigurationSet
+    Properties:
+       Name: !Sub "app-${UAI}-${AppName}-${Env}-${ConfigurationSetName}"
+
+    
+  MySESTemplate:    
+    Type: AWS::SES::Template
+    Properties:
+      Template: 
+        HtmlPart: !Ref HtmlPart
+        SubjectPart: !Ref SubjectPart
+        TemplateName: !Sub "app-${UAI}-${AppName}-${Env}-${TemplateName}"
+        TextPart: !Ref TextPart
+
+        
+Outputs:
+
+  SESEmailIdentitty:
+    Description: Email Identity 
+    Value: !Ref MySESEmailIdentity
+
+    
+
+          

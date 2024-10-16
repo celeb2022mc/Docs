@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation to create ECR.
+  
+Parameters:
+  AppName:
+    Type: String
+    MaxLength: 25
+    MinLength: 3
+    Description: Name of the application, keep to 15 characters or less
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  RepoName:
+    Type: String
+
+    MinLength: 3
+    Description: "Name of the repo, which gives you unique name if you required multiple repos for same application: such as UAI/appname/AppInstance/env"
+
+    
+Resources:
+  ECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "app-${UAI}-${AppName}-${Env}/${RepoName}"
+      ImageTagMutability: "IMMUTABLE"
+      ImageScanningConfiguration:
+        scanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 5,
+                "description": "Expire untagged images older than 30 days",
+                "selection": {
+                      "countType": "sinceImagePushed",
+                      "countUnit": "days",
+                      "countNumber": 30,
+                      "tagStatus": "untagged"
+                },
+                "action": {
+                  "type": "expire"
+                }
+              },
+              {
+                "rulePriority": 10,
+                "description": "expire images count more than 10 units",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppName
+        - Key: repo
+          Value: !Ref RepoName
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+Outputs:
+  Repositoryname:
+    Value: !Ref ECR
+  RepositoryArn:
+    Value: !GetAtt ECR.Arn

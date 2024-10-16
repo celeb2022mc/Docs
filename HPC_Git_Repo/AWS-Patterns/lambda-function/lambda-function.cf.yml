@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for Lambda function to be invoked by event rule.
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+  # SecurityGroupIds: 
+  #   Type: CommaDelimitedList
+  #   Description: Comma Separated List of SGs to be attached to the Lambda
+  #   Default: ''
+  SubnetIds: 
+    Type: CommaDelimitedList
+    Description: Comma Seperated Subnets to be attacked to the Lambda
+    Default: ''
+  S3Key:
+    Type: String
+    Description:  Where is the code in the s3 bucekt ? Key without bucketname
+    Default: LambdaScript/lambdacode.zip
+  AppName:
+    Type: String
+    Description: Name of the application
+  MemorySize:
+    Type: Number
+    Description: What is the memory allocation to the lambda function ?
+    Default: 128
+  Timeout:
+    Type: Number
+    Description: What is the timeout for the lambda function ?
+    Default: 60
+  Env:
+    Type: String
+    Description: Environment of the application
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  AppInstance:
+    Type: String
+    Description: 'App Instance for ex: app, web'
+  LambdaHandlerPath:
+    Type: String
+    Description: Path of a Lambda Handler.
+    AllowedPattern: '^.*[^0-9]$'
+    ConstraintDescription: Must end with non-numeric character.
+  LambdaRole:
+    Type: String
+    Description: Lambda role ARN
+  LambdaBucket:
+    Type: String
+    Description: Kms Key Arn value to encrypt the volume
+  VPCConfig:
+    Type: String
+    Description: 'true/false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  Runtime:
+    Type: String
+    Description: What is your runtime is ? choose one of these nodejs | nodejs4.3 | nodejs6.10 | nodejs8.10 | nodejs10.x | nodejs12.x | nodejs14.x | nodejs16.x | java8 | java8.al2 | java11 | python2.7 | python3.6 | python3.7 | python3.8 | python3.9 | dotnetcore1.0 | dotnetcore2.0 | dotnetcore2.1 | dotnetcore3.1 | dotnet6 | dotnet8 | nodejs4.3-edge | go1.x | ruby2.5 | ruby2.7 | provided | provided.al2 | nodejs18.x | python3.10 | java17 | ruby3.2 | python3.11 | nodejs20.x | provided.al2023 | python3.12 | java21
+  Usage:
+    Type: String
+    Default: 'My lambda Function'
+Conditions:
+  VPCConfig: !Equals [ !Ref VPCConfig, 'true' ]
+
+Resources:
+
+  AppSG:
+    Type: AWS::EC2::SecurityGroup
+    Condition: VPCConfig
+    Properties:
+      GroupDescription: !Sub "SG for ${UAI}-${AppName}-${AppInstance}-${Env} server"
+      GroupName: !Sub "app-${UAI}-${AppName}-${AppInstance}-${Env}"
+      VpcId: !ImportValue 'vpcid'
+      Tags:
+        - Key: Name
+          Value: !Sub "app-${UAI}-${AppName}-${AppInstance}-${Env}"
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppInstance
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  LambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub '${UAI}-${AppName}-${AppInstance}-${Env}-lambda-role'
+      Description: !Sub 'Lambda Funtion ${Usage}'
+      Runtime: !Ref Runtime
+      Handler: !Ref LambdaHandlerPath
+      MemorySize: !Ref MemorySize
+      Role: !Ref LambdaRole
+      Timeout: !Ref Timeout
+      Code:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref S3Key
+      VpcConfig:
+        Fn::If:
+        - VPCConfig
+        - SecurityGroupIds:
+            - !Ref AppSG
+          SubnetIds:
+            Ref: SubnetIds
+        - Ref: AWS::NoValue
+      Tags: 
+        - Key: Name
+          Value: !Sub '${UAI}-${AppName}-${AppInstance}-${Env}-lambda'
+        - Key: uai
+          Value:
+            Ref: UAI      
+        - Key: env
+          Value:
+            Ref: Env
+        - Key: role
+          Value:
+            Ref: AppInstance
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  lambdaLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${LambdaFunction}'
+      RetentionInDays: 30
+      Tags: 
+        - Key: Name
+          Value: !Sub '${UAI}-${AppName}-${AppInstance}-${Env}-lambda'
+        - Key: uai
+          Value:
+            Ref: UAI      
+        - Key: env
+          Value:
+            Ref: Env
+
+Outputs:
+  LambdaFunctionName:
+    Value:
+      Ref: LambdaFunction
+  LambdaFunctionARN:
+    Description: Lambda function ARN.
+    Value:
+      'Fn::GetAtt':
+        - LambdaFunction
+        - Arn

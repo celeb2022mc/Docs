@@ -1,0 +1,44 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CF Template to create the vpc endpoint for aws service.
+Parameters:
+  AWSService:
+    Type: String
+    Default: ecr.dkr
+  PrivateDNS:
+    Type: String
+    Default: true
+
+Resources:
+  EndPoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.${AWSService}
+      VpcId: !ImportValue vpcid
+      PrivateDnsEnabled: !Ref PrivateDNS
+      VpcEndpointType: Interface
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      SubnetIds: 
+        - !ImportValue endpoint-az1
+        - !ImportValue endpoint-az2
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "SG for the VPC End point ${AWSService}"
+      GroupName: !Sub "${AWSService}-VEP"
+      VpcId: !ImportValue "vpcid"
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWSService}-VEP"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 10.0.0.0/8
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 1
+        ToPort: 65535
+        CidrIp: 0.0.0.0/0

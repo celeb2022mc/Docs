@@ -1,0 +1,49 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template to create parameters in the SSM parameter store
+
+## History:
+  # 25-Jun-2024: added name, uai and env as parameters, tags and outputs
+
+
+Parameters:
+
+ #  values we will create in the SSM Parameter Store
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed. UAI starting sequence MUST be in uppercase.
+    ConstraintDescription: The UAI must be valid, but specified as 'UAI' in upper case followed by 7 digits
+    AllowedPattern: '^uai[0-9]*$'
+    MinLength: 10
+    MaxLength: 10
+  Env:
+    Type: String
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  ParamName:
+    Type: String
+    Description: "Name of the param. Should start with /app-uai"
+    Default: '/app-uai'
+
+  ParamValue:
+    Type: String
+    Description: "Should be left balnk and update from the Console with Privileged role"
+    Default: ""
+
+Resources:
+
+  SSMParam:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+        Name: !Sub "/app-${UAI}-${Env}/${ParamName}" 
+        Description: provide param1 value 
+        Type: String
+        Value: !Ref ParamValue
+        Tags:
+          uai: !Ref UAI
+          env: !Ref Env
+          Name: !Sub "/app-${UAI}-${Env}/${ParamName}"
+    
+Outputs:
+  ParameterName:
+    Value: !Ref SSMParam

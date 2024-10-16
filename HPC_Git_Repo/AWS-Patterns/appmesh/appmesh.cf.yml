@@ -1,0 +1,207 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create app mesh 
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  MeshName:
+    Type: String
+    Description: The name to use for the service mesh
+  
+  VirtualNodeName:
+    Type: String
+    Description: The name to use for the virtual node name
+
+  VirtualServiceName:
+    Type: String
+    Description: The name to use for the virtual service name
+
+  VirtualRouterName:
+    Type: String
+    Description: The name to use for the virtual router name
+
+  RouteName:
+    Type: String
+    Description: The name to use for the route name
+
+  ServicesDomain:
+    Type: String
+    Description: DNS namespace used by services e.g. default.svc.cluster.local
+
+  Protocol:
+      Type: String
+      Default: http
+      AllowedValues:
+      - http
+      - http2
+
+  ListenersPort:
+    Type: String
+    
+  Path:
+    Type: String
+
+  HealthyThreshold:
+    Type: String
+
+  UnhealthyThreshold:
+    Type: String
+
+  RouterPort:
+    Type: String
+
+
+Resources:
+  ServiceAppMesh:
+    Type: AWS::AppMesh::Mesh
+    Properties:
+      MeshName: !Ref MeshName
+      Spec:
+        EgressFilter:
+          Type: "ALLOW_ALL"
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+
+  ServiceVirtualNode:
+    Type: AWS::AppMesh::VirtualNode
+    Properties: 
+      MeshName: !Ref MeshName
+      VirtualNodeName: !Ref VirtualNodeName
+      Spec: 
+        Listeners:
+          - PortMapping:
+              Port: !Ref ListenersPort
+              Protocol: !Ref Protocol
+            HealthCheck:
+              Protocol: !Ref Protocol
+              Path: !Ref Path
+              HealthyThreshold: !Ref HealthyThreshold
+              UnhealthyThreshold: !Ref UnhealthyThreshold
+              TimeoutMillis: 2000
+              IntervalMillis: 5000
+        ServiceDiscovery:
+          DNS:
+            Hostname: !Ref ServicesDomain
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+      
+  ServiceVirtualRouter:
+    Type: AWS::AppMesh::VirtualRouter
+    DependsOn:
+      - ServiceAppMesh
+    Properties:
+      MeshName: !Ref MeshName
+      VirtualRouterName: !Ref VirtualRouterName 
+      Spec:
+        Listeners:
+          - PortMapping:
+              Port: !Ref RouterPort
+              Protocol: !Ref Protocol    
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  ServiceRoute:
+    Type: AWS::AppMesh::Route
+    DependsOn:
+      - ServiceVirtualRouter
+      - ServiceVirtualNode
+    Properties:
+      MeshName: !Ref MeshName
+      VirtualRouterName: !Ref VirtualRouterName
+      RouteName: !Ref RouteName
+      Spec:
+        HttpRoute:
+          Action:
+            WeightedTargets:
+              - VirtualNode: !Ref VirtualNodeName
+                Weight: 1
+          Match:
+            Prefix: "/"
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+          
+  ServiceVirtualService:
+    Type: AWS::AppMesh::VirtualService
+    DependsOn:
+      - ServiceVirtualRouter
+    Properties: 
+      MeshName: !Ref MeshName
+      VirtualServiceName: !Sub 'app-${UAI}_${AppName}_${Env}_${VirtualServiceName}'
+      Spec: 
+        Provider:
+          VirtualRouter:
+            VirtualRouterName: !Ref VirtualRouterName
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+      
+
+Outputs:
+
+  Mesh:
+    Description: A reference to the AppMesh Mesh
+    Value: !Ref ServiceAppMesh
+
+  VirtualNode:
+    Description: A reference to the virtual node
+    Value: !Ref ServiceVirtualNode
+
+  VirtualRouter:
+    Description: A reference to the virtual service
+    Value: !Ref ServiceVirtualRouter
+
+  Route:
+    Description: A reference to the route    
+    Value: !Ref ServiceRoute
+
+  VirtualService:
+    Description: A reference to the virtual service
+    Value: !Ref ServiceVirtualService

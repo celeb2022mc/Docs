@@ -1,0 +1,37 @@
+---
+# - name: Include vars from manifest.yml -- moved to playbook.yaml
+  # include_vars: "manifest.yml"
+
+- name: "Set facts for item '{{ item.task_description }}'"
+  vars:
+    parameters_file_path: "{{ playbook_dir }}/{{ item.template_parameters | default('') }}"
+  set_fact:
+    task_name: "{{ item.task_description }}"
+    inline_params: "{{  item.params | default({}) }}"
+    # example if expression ---> "{{ 'this' if (condition) else 'other' }}"
+    params_from_file: "{{ (lookup('file', parameters_file_path) | from_yaml) if (item.template_parameters is defined) else {} }}"
+
+- name: "DEBUG: print parsed values"
+  debug:
+    msg:
+      1_task_name:
+        task_name: "{{ task_name }}"
+      2_stack:
+        21_stack_name: "{{ item.stack_name }}"
+        22_region: "{{ main.account.region }}"
+        23_template: "{{ item.template }}"
+        24_tags: "{{ main.TAGS_FOR_ALL_STACKS }}"
+        30_inline_params: "{{ inline_params }}"
+        35_file_params: "{{ params_from_file }}"
+      3_params_to_use:
+        params: "{{ inline_params if (item.params is defined) else params_from_file }}"
+  when: main.print_parsed_values | default(false)
+
+- name: "Creating stack {{ item.stack_name }}"
+  cloudformation:
+    stack_name: "{{ item.stack_name }}"
+    state: "present"
+    region: "{{ main.account.region }}"
+    template: "{{ item.template }}"
+    template_parameters: "{{ inline_params if (item.params is defined) else params_from_file }}"
+    tags: "{{ main.TAGS_FOR_ALL_STACKS }}"

@@ -1,0 +1,14 @@
+---
+main:
+  account:
+    name: vn-hpc-dev
+    account_id: 445567079976
+    region: us-east-1
+
+  TAGS_FOR_ALL_STACKS:
+    env: prod
+    contact: AWSCloudHostingOps@ge.com
+    uai: UAI3064620
+
+  # for debugging the ansible code, it would display from where it gets its parameters
+  #print_parsed_values: true

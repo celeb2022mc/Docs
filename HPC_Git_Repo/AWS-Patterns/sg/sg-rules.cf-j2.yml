@@ -1,0 +1,101 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create ingress/egress rules in existing SGs
+              Last version from 19-Jul-2021
+              
+ ## History:::
+  # 19-Jul-2021 - Fixed bug in egress rule condition
+  # 09-Jun-2021 - Fix case when user does not supply a stack_output reference for SourceSG and TargetSG. BTW: It is bad practice to use literal SG values
+  # 02-Jun-2021 - initial version 
+
+Parameters:
+{%- for secgroup in instance.SGRules %}
+ {%- if ( secgroup.SourceSG is defined ) and  ('stack_output' in secgroup.SourceSG) %}
+  JSGRules{{ loop.index-1 }}SourceSG:
+    Type: String
+ {%- endif %}
+ {%- if ( secgroup.TargetSG is defined ) and  ('stack_output' in secgroup.TargetSG)  %}
+  JSGRules{{ loop.index-1 }}TargetSG:
+    Type: String
+ {%- endif %}
+{%- endfor %}
+  zUnusedParam:
+    Type: String
+    Default: 'Unused parameter to make sure section is not empty'
+
+Resources:
+{%- for sgrule in instance.SGRules %}
+ {%- set main = loop %}
+
+ {%- if 'SourceSG' in sgrule %}
+ {%- for rule in sgrule.Rules %}
+  SGEgressSGRule{{main.index}}{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      {%- if 'stack_output' in sgrule.SourceSG %}
+      GroupId: !Ref JSGRules{{ main.index-1}}SourceSG
+      {%- else %}
+      GroupId: {{ sgrule.SourceSG }}
+      {%- endif %}
+      IpProtocol: {{ rule.Protocol | default('tcp') }}
+      Description: {{ rule.Description }}
+      {%- if '-' in rule.Port| string %}
+      {%- set prange = rule.Port.split('-') %}
+      FromPort: {{ prange[0] | default('0')  }}
+      ToPort: {{ prange[1]| default('0') }}
+      {%- else %}
+      FromPort: {{ rule.Port | default('0')}}
+      ToPort: {{ rule.Port | default('0') }}
+      {%- endif %}
+      {%- if 'TargetSG' in sgrule %}
+       {%- if 'stack_output' in sgrule.TargetSG %}
+      DestinationSecurityGroupId: !Ref JSGRules{{ main.index-1}}TargetSG
+       {%- else %}
+      DestinationSecurityGroupId: {{ sgrule.TargetSG }}
+       {%- endif %}
+      {%- elif 'TargetCIDR' in sgrule %}
+       {%- if 'ImportValue' in sgrule.TargetCIDR %}
+      CidrIp: !ImportValue {{ sgrule.TargetCIDR.ImportValue }}
+       {%- else %}
+      CidrIp: {{ sgrule.TargetCIDR }}
+       {%- endif %}
+      {%- endif %}
+ {%- endfor %}
+ {%- endif %}
+
+ {%- if 'TargetSG' in sgrule %}
+ {%- for rule in sgrule.Rules %}
+  SGIngressSGRule{{main.index}}{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      {%- if 'stack_output' in sgrule.TargetSG %}
+      GroupId: !Ref JSGRules{{ main.index-1}}TargetSG
+      {%- else %}
+      GroupId: {{ sgrule.TargetSG }}
+      {%- endif %}
+      IpProtocol: {{ rule.Protocol | default('tcp') }}
+      Description: {{ rule.Description }}
+      {%- if '-' in rule.Port |string %}
+      {%- set prange = rule.Port.split('-') %}
+      FromPort: {{ prange[0] | default('0') }}
+      ToPort: {{ prange[1]| default('0') }}
+      {%- else %}
+      FromPort: {{ rule.Port | default('0') }}
+      ToPort: {{ rule.Port | default('0') }}
+      {%- endif %}
+      {%- if 'SourceSG' in sgrule %}
+       {%- if 'stack_output' in sgrule.SourceSG %}
+      SourceSecurityGroupId: !Ref JSGRules{{ main.index-1}}SourceSG
+       {%- else %}
+      SourceSecurityGroupId: {{ sgrule.SourceSG }}
+       {%- endif %}
+      {%- elif 'SourceCIDR' in sgrule %}
+       {%- if 'ImportValue' in sgrule.SourceCIDR %}
+      CidrIp: !ImportValue {{ sgrule.SourceCIDR.ImportValue }}
+       {%- else %}
+      CidrIp: {{ sgrule.SourceCIDR }}
+       {%- endif %}
+      {%- endif %}
+ {%- endfor %}
+ {%- endif %}
+{%- endfor %}

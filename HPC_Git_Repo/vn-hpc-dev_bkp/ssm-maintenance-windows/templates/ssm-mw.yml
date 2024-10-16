@@ -1,0 +1,176 @@
+#07-Nov-2019 - Adjusted Env tag to env.
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to create Maintenance Window and Tasks to trigger security updates for EC2 instances
+
+Parameters:
+  SnsTopic:
+    Type: String
+    Description: >-
+      SNS topic where all alerts regarding this maintenance window will be sent
+    Default: ''
+  MaintenanceWindowName:
+    Type: String
+    Description: >-
+      Name of the Maintenance Window | ex: prod_systemupdates | DO NOT USE CAPITALIZATION | <description>_<accountname>_systemupdates
+    Default: Vernova-Standard-Patching-Window
+  PatchLogsBucket:
+    Description: >-
+      Name of s3 bucket to store logs related to patching
+    Type: String
+    Default: ''
+  ServiceRole:
+    Type: String
+    Description: >-
+      ARN for service role used for executions and notifcations associated with this Maintenance Window tasks
+    Default: 'vn/vn-default-ssm-access'
+  CronDefLinux:
+    Type: String
+    Description: >-
+      Cron spec for the Maintenance Window to trigger security updates for EC2 instances
+    Default: "cron(0 4 ? * SAT#1 *)"
+  CronDefWindows:
+      Type: String
+      Description: >-
+        Cron spec for the Maintenance Window to trigger security updates for EC2 instances
+      Default: "cron(0 4 ? * SAT#3 *)"
+  uai:
+    Type: String
+    Description: uai owner to tag the resources created with this CFT
+    Default: uai3064620
+  Env:
+    Type: String
+    Description: Environment to tag the resources created with this CFT
+    AllowedValues:
+     - no-prd
+     - prd
+    Default: prd
+  PatchGrpLinux:
+    Type: String
+    Description: >-
+      Patch group tag to target Linux machines
+    Default: "Patch-App-PrdLinux"
+  PatchGrpWindows:
+    Type: String
+    Description: >-
+      Patch group tag to target Windows machines
+    Default: "Patch-App-PrdWindows"
+Resources:
+
+# Maintenance Window
+  MWLinux:
+    Type: AWS::SSM::MaintenanceWindow
+    Properties: 
+      AllowUnassociatedTargets: false
+      Cutoff: 1
+      Description: "Maintenance Window to trigger security updates for Linux EC2 instances"
+      Duration: 4
+      Name: !Sub ${MaintenanceWindowName}-Linux
+      Schedule: !Sub ${CronDefLinux}
+      Tags:
+        - Key: env
+          Value: !Sub ${Env}
+        - Key: uai
+          Value: !Ref uai
+# Target for the Maintenenace Window
+  MwTarget:
+    Type: 'AWS::SSM::MaintenanceWindowTarget'
+    Properties:
+      WindowId: !Ref MWLinux
+      ResourceType: 'INSTANCE'
+      Targets:
+        - Key: 'tag:Patch'
+          Values:
+            - 'Yes'
+        - Key: 'tag:Patch Group'
+          Values: 
+            - !Sub ${PatchGrpLinux}
+      Name: !Sub target01-${MWLinux}
+# Maintenenance 
+  MwTask:
+    Type: 'AWS::SSM::MaintenanceWindowTask'
+    Properties:
+      WindowId: !Ref MWLinux
+      Targets:
+        - Key: 'WindowTargetIds'
+          Values:
+            - !Ref MwTarget
+      TaskArn: AWS-RunPatchBaseline
+      ServiceRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${ServiceRole}"
+      TaskType: 'RUN_COMMAND'
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          #NotificationConfig:
+          #  NotificationArn: !Ref SnsTopic
+          #  NotificationEvents: 
+          #    - All
+          #  NotificationType: Command
+          ServiceRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${ServiceRole}"
+          Parameters:
+            Operation: 
+              - Install
+          #OutputS3BucketName: !Ref PatchLogsBucket
+          #OutputS3KeyPrefix: !Ref MwTarget
+      Priority: 1
+      MaxConcurrency: '25%'
+      MaxErrors: '75%'
+      Name: !Sub task01-${MWLinux}
+
+######################################################################################################
+
+  MWWindows:
+    Type: AWS::SSM::MaintenanceWindow
+    Properties: 
+      AllowUnassociatedTargets: false
+      Cutoff: 1
+      Description: "Maintenance Window to trigger security updates for EC2 instances"
+      Duration: 4
+      Name: !Sub ${MaintenanceWindowName}-Windows
+      Schedule: !Sub ${CronDefWindows}
+      Tags:
+        - Key: env
+          Value: !Sub ${Env}
+        - Key: uai
+          Value: !Ref uai
+# Target for the Maintenenace Window
+  MwTargetWindows:
+    Type: 'AWS::SSM::MaintenanceWindowTarget'
+    Properties:
+      WindowId: !Ref MWWindows
+      ResourceType: 'INSTANCE'
+      Targets:
+        - Key: 'tag:Patch'
+          Values:
+            - 'Yes'
+        - Key: 'tag:Patch Group'
+          Values: 
+            - !Sub ${PatchGrpWindows}
+      Name: !Sub target01-${MWWindows}
+# Maintenenance 
+  MwTaskWindows:
+    Type: 'AWS::SSM::MaintenanceWindowTask'
+    Properties:
+      WindowId: !Ref MWWindows
+      Targets:
+        - Key: 'WindowTargetIds'
+          Values:
+            - !Ref MwTargetWindows
+      TaskArn: AWS-RunPatchBaseline
+      ServiceRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${ServiceRole}"
+      TaskType: 'RUN_COMMAND'
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          #NotificationConfig:
+          #  NotificationArn: !Ref SnsTopic
+          #  NotificationEvents: 
+          #    - All
+          #  NotificationType: Command
+          ServiceRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${ServiceRole}"
+          Parameters:
+            Operation: 
+              - Install
+          #OutputS3BucketName: !Ref PatchLogsBucket
+          #OutputS3KeyPrefix: !Ref MwTarget
+      Priority: 1
+      MaxConcurrency: '25%'
+      MaxErrors: '75%'
+      Name: !Sub task01-${MWWindows}

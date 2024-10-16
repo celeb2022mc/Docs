@@ -1,0 +1,115 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create kms key
+
+# History :- Removed GP specific roles and added VN Specific roles
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: "[a-z0-9\\-]*"
+    Description: AppName, keep to 15 characters or less.
+
+  AppInstance:
+    Type: String
+    Description: "App Instance for ex: jenkins, app, web "
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+Resources:
+  KMSKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      Description: !Sub "KMS key at the Role level for 'alias/${UAI}-${AppName}-${AppInstance}-${Env}'"
+      Enabled: true
+      EnableKeyRotation: true
+      Tags: 
+        - Key: Name
+          Value: !Sub '${UAI}-${AppName}-${AppInstance}-${Env}'
+        - Key: app
+          Value: !Ref AppName
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: automation-key
+        Statement:
+          - Sid: EnableKeyAccessforRootUser
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+
+          - Sid: DisableScheduleKeyDeletionfroRootUser
+            Effect: Deny
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:ScheduleKeyDeletion'
+            Resource: '*'
+          - Sid: EnableKeyAccessforAdmins
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/vn/p/vnadmin'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/vn/bot/vn-lz-deploy-resources'
+                # Include the list of role arns to have admin access
+            Action:
+              - 'kms:Create*'
+              - 'kms:Describe*'
+              - 'kms:Enable*'
+              - 'kms:List*'
+              - 'kms:Put*'
+              - 'kms:Update*'
+              - 'kms:Revoke*'
+              - 'kms:Disable*'
+              - 'kms:Get*'
+              - 'kms:Delete*'
+              - 'kms:TagResource'
+              - 'kms:UntagResource'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion"'
+            Resource: '*'
+
+          - Sid: EnableKeyUserAccess
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub "arn:aws:iam::${AWS::AccountId}:role/vn/account-privileged"
+                # Include the list of role arns to have usage access
+            Action:
+              - 'kms:CreateGrant'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+
+  KMSAlias:
+    Type: 'AWS::KMS::Alias'
+    Properties:
+      AliasName: !Sub 'alias/${UAI}-${AppName}-${AppInstance}-${Env}'
+      TargetKeyId: !Ref KMSKey
+
+Outputs:
+  KMSID:
+    Value: !Ref KMSKey
+  KMSArn:
+    Value: !GetAtt KMSKey.Arn
+  KMSAlias:
+    Value: !Ref KMSAlias

@@ -1,0 +1,44 @@
+---
+## History
+ # 01-Oct-2024: Initial version for non-routable IP space
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Route Table for non-routable IP space
+Resources:
+  rRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !ImportValue 'vpcid'
+      Tags:
+        - Key: Name
+          Value: rt-NonRoutable
+
+  rNATGW:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref rRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !ImportValue private:natgw:id
+
+  rS3Route:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds: [ !Ref rRouteTable ]
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      VpcId: !ImportValue 'vpcid'
+
+  rS3Dynamo:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds: [ !Ref rRouteTable ]
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
+      VpcEndpointType: Gateway
+      VpcId: !ImportValue 'vpcid'
+
+Outputs:
+  RouteTable:
+    Description: 'The id of the route table.'
+    Value: !Ref rRouteTable
+    Export:
+      Name: private:rt:id

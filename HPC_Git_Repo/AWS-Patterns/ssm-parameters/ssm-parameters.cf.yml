@@ -1,0 +1,22 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template to create parameters in the SSM parameter store
+
+Parameters:
+
+ #  values we will create in the SSM Parameter Store
+ 
+  Param1Value:
+    Type: String
+    Description: "Param 1 description here"
+    Default: 'nil'
+
+Resources:
+
+  SSMParam1:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+        Name: /param1
+        Description: provide param1 value 
+        Type: String
+        Value: !Ref Param1Value

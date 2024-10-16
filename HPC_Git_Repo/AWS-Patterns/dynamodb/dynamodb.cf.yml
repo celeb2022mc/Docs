@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create DynamoDB Table
+ 
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  Table:
+    Type: String
+    MaxLength: 30
+    Description: TableName, keep to 15 characters or less.
+
+  StreamViewType:
+    Type: String
+    Description: When an item in the table is modified, StreamViewType determines what information is written to the stream for this table
+    AllowedValues:
+    - KEYS_ONLY
+    - NEW_AND_OLD_IMAGES
+    - NEW_IMAGE
+    - OLD_IMAGE
+
+Resources:  
+  DynamoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      Tags:
+        - Key: appname
+          Value: !Ref AppName
+        - Key: env
+          Value: !Ref Env
+        - Key: uai
+          Value: !Ref UAI
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expirationTime
+        Enabled: True
+      AttributeDefinitions:
+        - AttributeName: "example1"
+          AttributeType: "S"
+        - AttributeName: "example2"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "example1"
+          KeyType: "HASH"
+        - AttributeName: "example2"
+          KeyType: "RANGE"
+      TableName: !Sub app-${UAI}-${Table}-${Env}
+      StreamSpecification:
+        StreamViewType: !Ref StreamViewType
+      
+Outputs:
+  DynamodbTableARN:
+    Value: !GetAtt DynamoTable.Arn
+    

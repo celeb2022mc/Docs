@@ -1,0 +1,103 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates an S3 bucket.
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppInstance:
+    Type: String
+    Description: "Which instance of the application. Example: app1-dev. Must be lowercase. Max 17 chars."
+    AllowedPattern: '^[a-z][a-z0-9\._\-]*[a-z0-9]$'
+    ConstraintDescription: "Must contain only lower case letters, digits, '.', '_' or '-'. Min 3 chars. Max 17. Must start with a letter and end with a letter or digit"
+    MinLength: 3
+    MaxLength: 17
+
+  AppName:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: "[a-z0-9\\-]*"
+    Description: AppName, keep to 15 characters or less.
+
+  Env:
+    Type: String
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  ObjectName:
+    Type: String
+    Description: The name of the S3 Bucket to create
+  AccessControl:
+    Type: String
+    Default: Private
+    AllowedValues:
+    - Private
+    - PublicRead
+    - PublicReadWrite
+    - AuthenticatedRead
+    - LogDeliveryWrite
+    - BucketOwnerRead
+    - BucketOwnerFullControl   
+  AWSAccountName:
+    Type: String
+    Description: 'The Aws Account Name'
+  VersioningConfiguration:
+    Type: String
+    AllowedValues:
+    - Enabled
+    - Suspended
+
+Resources:
+  S3EncryptedBucket:
+    Type: AWS::S3::Bucket
+    Properties:   
+      BucketName:
+        Fn::Sub: app-${UAI}-${AppName}-${Env}-s3-${ObjectName}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      AccessControl: !Ref AccessControl                        
+      VersioningConfiguration:
+        Status: !Ref VersioningConfiguration
+      Tags:
+      - Key: uai
+        Value:
+          Ref: UAI
+      - Key: Name
+        Value:
+          Fn::Sub: app-${UAI}-${AppName}-${Env}-s3-${ObjectName}
+      - Key: Appname
+        Value:
+          Ref: AppName
+      - Key: env
+        Value: !Ref Env
+      - Key: Stack_ID
+        Value: !Sub ${AWS::StackId}
+      - Key: Stack_Name
+        Value: !Sub ${AWS::StackName}
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3EncryptedBucket
+      PolicyDocument:
+        Statement:
+          - Sid: Prohibit access over plain HTTP
+            Effect: Deny
+            Principal: '*'
+            Action: '*'
+            Resource:
+              - !Sub '${S3EncryptedBucket.Arn}'
+              - !Sub '${S3EncryptedBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'                
+Outputs:
+  S3BucketARN:
+    Value: !GetAtt S3EncryptedBucket.Arn
+    Description: ARN for the S3 bucket

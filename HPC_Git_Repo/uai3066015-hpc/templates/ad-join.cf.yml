@@ -1,0 +1,243 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: "AWS::Serverless-2016-10-31"
+Description: Template to deploy the AD Join SSM Document for Landing Zone
+Parameters:
+  UAI:
+    Type: String
+    Description: UAI
+  Env:
+    Type: String
+    Description: Environment
+  # InstanceId:
+  #   Type: String
+  #   Description: (Required) The EC2 Instance ID
+  #   Default: ''
+  # InstanceIamRole:
+  #   Type: String
+  #   Default: vn-default-ssm-access
+  #   Description: (Required) The name of the role that enables Systems Manager (SSM) to manage the instance.
+  # AutomationAssumeRole:
+  #   Type: String
+  #   Default: arn:aws:iam::445567079976:role/inf/ssm-ami
+  #   Description: (Required) The ARN of the role that allows Automation to perform the actions on your behalf.
+
+Resources:
+    ADDomainJoinLZStack:
+        Type: AWS::SSM::Document
+        Properties:
+            # VersionName: "WithSharedSSMParam"
+            Name: "HPC-AD-Domain-Join"
+            DocumentType: "Automation"
+            UpdateMethod: NewVersion
+            Content:
+              schemaVersion: '0.3'
+              description: Add windows Ec2 under the AD.
+              parameters:
+                InstanceId:
+                  default: ''
+                  description: (Required) The EC2 Instance ID
+                  type: String
+                AddGrp:
+                  default: '{{ssm:/automation/win/NetGroup}}'
+                  description: Add net groups to the server
+                  type: String
+              mainSteps:
+                - name: InstallAWSCLI
+                  action: aws:runCommand
+                  maxAttempts: 3
+                  timeoutSeconds: 3600
+                  nextStep: stopInstance1
+                  isEnd: false
+                  onFailure: Abort
+                  inputs:
+                    DocumentName: AWS-RunPowerShellScript
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                    Parameters:
+                      executionTimeout: '3600'
+                      commands:
+                        - Invoke-WebRequest https://s3.amazonaws.com/aws-cli/AWSCLI64PY3.msi -OutFile C:\temp\AWSCLI64PY3.msi
+                        - sleep 60
+                        - Start-Process "msiexec.exe" -ArgumentList "/i C:\temp\AWSCLI64PY3.msi /qn" -Wait -NoNewWindow
+                - name: stopInstance1
+                  action: aws:changeInstanceState
+                  maxAttempts: 3
+                  timeoutSeconds: 1200
+                  nextStep: startInstance1
+                  isEnd: false
+                  onFailure: Abort
+                  inputs:
+                    DesiredState: stopped
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                - name: startInstance1
+                  action: aws:changeInstanceState
+                  maxAttempts: 3
+                  timeoutSeconds: 1200
+                  nextStep: InstallOtherTools
+                  isEnd: false
+                  onFailure: Abort
+                  inputs:
+                    DesiredState: running
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                - name: InstallOtherTools
+                  action: aws:runCommand
+                  maxAttempts: 3
+                  timeoutSeconds: 3600
+                  nextStep: ARSEntry
+                  isEnd: false
+                  onFailure: Abort
+                  inputs:
+                    DocumentName: AWS-RunPowerShellScript
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                    Parameters:
+                      executionTimeout: '3600'
+                      commands:
+                        - mkdir C:\Certs
+                        - cd C:\Certs
+                        - cd C:\Program Files\Amazon\AWSCLI\bin
+                        - aws s3 cp s3://vn-lz-common-bucket/GE_External_Root_CA_2_1.cer c:\Certs\GE_External_Root_CA_2_1.cer
+                        - certutil -addstore -f root C:\Certs\GE_External_Root_CA_2_1.cer
+                        - aws s3 cp s3://vn-lz-common-bucket/TrustStoreImport.reg C:\Certs\TrustStoreImport.reg
+                        - reg import C:\Certs\TrustStoreImport.reg
+                        # - aws s3 cp s3://vn-lz-common-bucket/unzip.exe C:\\unzip.exe
+                        # - sleep 20
+                        # - $OSVersion = (Get-WmiObject -class Win32_OperatingSystem).Caption
+                        # - aws s3 cp s3://vn-lz-common-bucket/CC_ActivClient-7.0.2.421_Win-x64.zip C:\\CC_ActivClient-7.0.2.421_Win-x64.zip
+                        # - sleep 30
+                        # - C:\\unzip.exe -PassThru C:\\CC_ActivClient-7.0.2.421_Win-x64.zip
+                        # - Expand-Archive -LiteralPath C:\\CC_ActivClient-7.0.2.421_Win-x64.zip -DestinationPath C:\\
+                        # - start-process C:\\sysinfo\\2_Factor\\install.bat
+                        # - sleep 30
+                        # - Remove-Item -path c:\\sysinfo -Recurse
+                        # - sleep 10
+                        # - Remove-Item -path c:\\CC_ActivClient-7.0.2.421_Win-x64.zip -Recurse
+                        # - sleep 5
+                - name: ARSEntry
+                  action: aws:runCommand
+                  maxAttempts: 3
+                  timeoutSeconds: 3600
+                  nextStep: ADRegistration
+                  isEnd: false
+                  onFailure: Abort
+                  inputs:
+                    Parameters:
+                      executionTimeout: '3600'
+                      commands:
+                        - $password = (Get-SSMParameterValue -Name arn:aws:ssm:us-east-1:445567079976:parameter/hpc/domainJoinPassword -WithDecryption $True).Parameters[0].Value | ConvertTo-SecureString -asPlainText -Force
+                        - $domain="mgmt.cloud.ds.ge.com"
+                        - $username = (Get-SSMParameterValue -Name arn:aws:ssm:us-east-1:445567079976:parameter/hpc/domainJoinUserName ).Parameters[0].Value
+                        - $hostname = $env:COMPUTERNAME
+                        - $credential = New-Object System.Management.Automation.PSCredential($username,$password)
+                        - $contenttype = "text/xml; charset=UTF-8"
+                        - $body = '<?xml version="1.0" encoding="utf-8"?>
+                        - <soap:Envelope xmlns:xsi=http://www.w3.org/2001/XMLSchema-instance xmlns:xsd=http://www.w3.org/2001/XMLSchema xmlns:soap=http://schemas.xmlsoap.org/soap/envelope/>
+                        - <soap:Body>
+                        - <addRequest xmlns="urn:oasis:names:tc:SPML:2:0" returnData="nothing">
+                        - <containerID ID="OU=Unclaimed,OU=Computers,OU=Enterprise,DC=mgmt,DC=cloud,DC=ds,DC=ge,DC=com" />
+                        - <data>
+                        - <attr name="cn" xmlns="urn:oasis:names:tc:DSML:2:0:core">
+                        - <value>changehostname</value>
+                        - </attr>
+                        - <attr name="sAMAccountName" xmlns="urn:oasis:names:tc:DSML:2:0:core">
+                        - <value>changehostname$</value>
+                        - </attr>
+                        - <attr name="objectClass" xmlns="urn:oasis:names:tc:DSML:2:0:core">
+                        - <value>computer</value>
+                        - </attr>
+                        - <attr name="edsaJoinComputerToDomain" xmlns="urn:oasis:names:tc:DSML:2:0:core">
+                        - <value>CC-MGMT\DEL_GE009000000_SVR_Join_Domain</value>
+                        - </attr>
+                        - <attr name="GEHRINDUSTRYGROUPID" xmlns="urn:oasis:names:tc:DSML:2:0:core">
+                        - <value>1147425</value>
+                        - </attr>
+                        - <attr name="GEVSVRTYPE" xmlns="urn:oasis:names:tc:DSML:2:0:core">
+                        - <value>Windows</value>
+                        - </attr>
+                        - <attr name="GEVSVRSUPPORTEDBY" xmlns="urn:oasis:names:tc:DSML:2:0:core">
+                        - <value>GE009000000</value>
+                        - </attr>
+                        - <attr name="otherManagedBy" xmlns="urn:oasis:names:tc:DSML:2:0:core">
+                        - <value>CN=305017292,OU=Standard,OU=Users,OU=Enterprise,DC=Logon,DC=DS,DC=GE,DC=COM</value>
+                        - </attr>
+                        - </data>
+                        - </addRequest>
+                        - </soap:Body>
+                        - </soap:Envelope>'
+                        - $body = $body.Replace('changehostname', $hostname)
+                        - Invoke-RestMethod -Method 'POST' -Uri https://ars.cloudad.tools.ds.ge.com/spml/SPMLProvider.asmx -Credential $credential -ContentType $contenttype -Body $body
+                        - sleep 30
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                    DocumentName: AWS-RunPowerShellScript
+                - name: ADRegistration
+                  action: aws:runCommand
+                  maxAttempts: 3
+                  timeoutSeconds: 3600
+                  nextStep: stopInstance2
+                  isEnd: false
+                  onFailure: Abort
+                  inputs:
+                    Parameters:
+                      executionTimeout: '3600'
+                      commands:
+                        - $password = (Get-SSMParameterValue -Name arn:aws:ssm:us-east-1:445567079976:parameter/hpc/domainJoinPassword -WithDecryption $True).Parameters[0].Value | ConvertTo-SecureString -asPlainText -Force
+                        - $domain="mgmt.cloud.ds.ge.com"
+                        - $username = (Get-SSMParameterValue -Name arn:aws:ssm:us-east-1:445567079976:parameter/hpc/domainJoinUserName ).Parameters[0].Value
+                        - $hostname = $env:COMPUTERNAME
+                        - $credential = New-Object System.Management.Automation.PSCredential($username,$password)
+                        - Add-Computer -DomainName $domain -Credential $credential
+                        - sleep 20
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                    DocumentName: AWS-RunPowerShellScript
+                - name: stopInstance2
+                  action: aws:changeInstanceState
+                  maxAttempts: 3
+                  timeoutSeconds: 1200
+                  nextStep: startInstance2
+                  isEnd: false
+                  onFailure: Abort
+                  inputs:
+                    DesiredState: stopped
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                - name: startInstance2
+                  action: aws:changeInstanceState
+                  maxAttempts: 3
+                  timeoutSeconds: 1200
+                  nextStep: GroupAddition
+                  isEnd: false
+                  onFailure: Abort
+                  inputs:
+                    DesiredState: running
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                - name: GroupAddition
+                  action: aws:runCommand
+                  maxAttempts: 3
+                  timeoutSeconds: 3600
+                  isEnd: true
+                  onFailure: Abort
+                  inputs:
+                    Parameters:
+                      executionTimeout: '3600'
+                      commands:
+                        - (Get-WmiObject -class Win32_TSGeneralSetting -Namespace root\cimv2\terminalservices -ComputerName $env:COMPUTERNAME -Filter "TerminalName='RDP-tcp'").SetUserAuthenticationRequired(0)
+                        - if (Test-Path -LiteralPath "C://NetGroup.txt") {
+                        - echo 'netgroup is existed' }
+                        - else {
+                        - $groups = @("{{ AddGrp }}")
+                        - foreach ($grp in $groups) {
+                        - $domain = "mgmt.cloud.ds.ge.com"
+                        - $admin_group = $grp
+                        - net localgroup administrators $domain $admin_group /ADD
+                        - echo "server group for domain access = $admin_group" }
+                        - New-Item C://NetGroup.txt }
+                    InstanceIds:
+                      - '{{ InstanceId }}'
+                    DocumentName: AWS-RunPowerShellScript
+
+

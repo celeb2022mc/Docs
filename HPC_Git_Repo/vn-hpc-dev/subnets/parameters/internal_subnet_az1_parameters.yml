@@ -1,0 +1,6 @@
+AzName: AZ1
+SubnetName: "internal-app-az1"
+SubnetCidrBlock: "10.244.48.0/25"
+NaclExportName: "internal-app-nacl"
+RouteTableExportName: "rt-PrivateId"
+SubnetType: Internal-Application

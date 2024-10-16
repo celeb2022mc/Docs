@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create Kinesis DataStream
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  StreamName:
+    Type: String
+    Description: The name to use for the service Kinesis DataStream
+  
+  KmsKey:
+    Type: String
+    Description: Kinesis DataStream uses AWS Key Management Service (KMS) to encrypt your data at rest
+
+  streamMode:
+    Type: String
+    Description: strean mode to use for the service Kinesis DataStream
+    AllowedValues:
+      - ON_DEMAND
+      - PROVISIONED
+Conditions: 
+    streamModeType : !Equals [!Ref streamMode, PROVISIONED]
+
+Resources:
+  DataStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Sub "app-${UAI}-${AppName}-${Env}-${StreamName}"
+      RetentionPeriodHours: 24
+      ShardCount: !If [streamModeType, 3,!Ref "AWS::NoValue"]
+      StreamEncryption:
+        EncryptionType: KMS 
+        KeyId: !Ref KmsKey
+      StreamModeDetails:
+        StreamMode: !Ref streamMode
+      Tags:        
+        - Key: "uai"
+          Value: !Ref UAI
+        - Key: "app"
+          Value: !Ref AppName
+        - Key: "env"
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+Outputs:
+  StreamARN:
+    Description: ARN of Kinesis DataStream
+    Value: !GetAtt DataStream.Arn
+  StreamName:
+    Description: Name of Kinesis DataStream
+    Value: !Ref DataStream

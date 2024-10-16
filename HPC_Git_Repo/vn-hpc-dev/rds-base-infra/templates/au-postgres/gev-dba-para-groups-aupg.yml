@@ -1,0 +1,301 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This stack creates the Aurora Postgresql parameters groups that are neccessary for Aurora Postgresql RDS instance builds.
+
+Parameters:
+  uai:
+    Type: String
+    Description: The uai of the application being charged for usage.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in upper case followed by 7 digits
+    AllowedPattern: '^(uai|uai)[0-9]*$'
+    MinLength: 10
+    MaxLength: 10
+    Default: 'uai3064620'
+  
+
+Resources:
+
+  rdsaurorapsqldefaultparamgroup13:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      DBParameterGroupName: 'gev-dba-para-group-non-prod-aurora-postgres-13'
+      Description: Aurora postgresql 13 Non-Prod parameter group with audit enabled
+      Family: 'aurora-postgresql13'
+      Parameters:
+        #rds.force_ssl: 1
+        #rds.restrict_password_commands: 1
+        pgaudit.role: "rds_pgaudit"
+        shared_preload_libraries: "pgaudit,pg_stat_statements,pglogical"
+        pgaudit.log: "ddl"
+        log_rotation_size: "51200"
+        log_hostname: 1
+      Tags: 
+        - Key: Name
+          Value: 'gev-dba-para-group-non-prod-aurora-postgres-13'
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+  rdsaurorapsqlgxpparamgroup13:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: Aurora postgresql 13 Prod parameter group with audit enabled
+      DBParameterGroupName: 'gev-dba-para-group-prod-aurora-postgres-13'
+      Family: 'aurora-postgresql13'
+      Parameters:
+        rds.log_retention_period: "10080"  # 7 days
+        #rds.force_ssl: 1                   # On
+        #rds.restrict_password_commands: 1
+        pgaudit.role: "rds_pgaudit"
+        shared_preload_libraries: "pgaudit,pg_stat_statements,pglogical"
+        pgaudit.log: "ddl"
+        log_rotation_size: "51200"
+        log_connections: "1"
+        log_disconnections: "1"
+        log_hostname: 1
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+  rdsauroraclsparamgroup13:
+    Type: 'AWS::RDS::DBClusterParameterGroup'
+    Properties:
+      Description: Aurora Cluster postgresql 13 Prod parameter group with audit enabled
+      Family: 'aurora-postgresql13'
+      DBClusterParameterGroupName: 'gev-dba-para-group-prod-aurora-postgres-13'
+      Parameters:
+        rds.force_ssl: 1                   # On
+        rds.restrict_password_commands: 1
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+
+  rdsaurorapsqldefaultparamgroup14:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: Aurora postgresql 14 Non-Prod parameter group with audit enabled
+      DBParameterGroupName: 'gev-dba-para-group-non-prod-aurora-postgres-14'
+      Family: 'aurora-postgresql14'
+      Parameters:
+        #rds.force_ssl: 1
+        #rds.restrict_password_commands: 1
+        pgaudit.role: "rds_pgaudit"
+        shared_preload_libraries: "pgaudit,pg_stat_statements,pglogical"
+        pgaudit.log: "ddl"
+        log_rotation_size: "51200"
+        log_hostname: 1
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+  rdsaurorapsqlgxpparamgroup14:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: Aurora postgresql 14 Prod parameter group with audit enabled
+      Family: 'aurora-postgresql14'
+      DBParameterGroupName: 'gev-dba-para-group-prod-aurora-postgres-14'
+      Parameters:
+        rds.log_retention_period: "10080"  # 7 days
+        #rds.force_ssl: 1                   # On
+        #rds.restrict_password_commands: 1
+        pgaudit.role: "rds_pgaudit"
+        shared_preload_libraries: "pgaudit,pg_stat_statements,pglogical"
+        pgaudit.log: "ddl"
+        log_rotation_size: "51200"
+        log_connections: "1"
+        log_disconnections: "1"
+        log_hostname: 1
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+  rdsauroraclsparamgroup14:
+    Type: 'AWS::RDS::DBClusterParameterGroup'
+    Properties:
+      Description: Aurora Cluster postgresql 14 Prod parameter group with audit enabled
+      Family: 'aurora-postgresql14'
+      DBClusterParameterGroupName: 'gev-dba-para-group-prod-aurora-postgres-14'
+      Parameters:
+        rds.force_ssl: 1                   # On
+        rds.restrict_password_commands: 1
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+
+  rdsaurorapsqldefaultparamgroup15:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: Aurora postgresql 15 Non-Prod parameter group with audit enabled
+      Family: 'aurora-postgresql15'
+      DBParameterGroupName: 'gev-dba-para-group-non-prod-aurora-postgres-15'
+      Parameters:
+        #rds.force_ssl: 1
+        #rds.restrict_password_commands: 1
+        pgaudit.role: "rds_pgaudit"
+        shared_preload_libraries: "pgaudit,pg_stat_statements,pglogical"
+        pgaudit.log: "ddl"
+        log_rotation_size: "51200"
+        log_hostname: 1
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+  rdsaurorapsqlgxpparamgroup15:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: Aurora postgresql 15 Prod parameter group with audit enabled
+      Family: 'aurora-postgresql15'
+      DBParameterGroupName: 'gev-dba-para-group-prod-aurora-postgres-15'
+      Parameters:
+        rds.log_retention_period: "10080"  # 7 days
+        #rds.force_ssl: 1                   # On
+        #rds.restrict_password_commands: 1
+        pgaudit.role: "rds_pgaudit"
+        shared_preload_libraries: "pgaudit,pg_stat_statements,pglogical"
+        pgaudit.log: "ddl"
+        log_rotation_size: "51200"
+        log_connections: "1"
+        log_disconnections: "1"
+        log_hostname: 1
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+  rdsauroraclsparamgroup15:
+    Type: 'AWS::RDS::DBClusterParameterGroup'
+    Properties:
+      Description: Aurora Cluster postgresql 15 Prod parameter group with audit enabled
+      Family: 'aurora-postgresql15'
+      DBClusterParameterGroupName: 'gev-dba-para-group-prod-aurora-postgres-15'
+      Parameters:
+        rds.force_ssl: 1                   # On
+        rds.restrict_password_commands: 1
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+
+Outputs:
+
+  
+  rdsaurorapsqldefaultparamgroup13:
+    Description: "RDS Parameter Group that stores default parameters with audit enabled for Aurora PostgreSQL 13"
+    Value: !Ref rdsaurorapsqldefaultparamgroup13
+    Export:
+      Name: 'gev-dba:rds:parametergroups:aurora-postgresql:non-prod:13'
+      
+  rdsaurorapsqlgxpparamgroup13:
+    Description: "RDS Parameter Group that stores GxP parameters with audit enabled for Aurora PostgreSQL 13"
+    Value: !Ref rdsaurorapsqlgxpparamgroup13
+    Export:
+      Name: 'gev-dba:rds:parametergroups:aurora-postgresql:prod:13'
+     
+  rdsauroraclsparamgroup13:
+    Description: "RDS Cluster Parameter Group Aurora PostgreSQL Cluster 13"
+    Value: !Ref rdsauroraclsparamgroup13
+    Export:
+      Name: 'gev-dba:rds:clusterparametergroups:aurora-postgresql:prod:13'
+
+  rdsaurorapsqldefaultparamgroup14:
+    Description: "RDS Parameter Group that stores default parameters with audit enabled for Aurora PostgreSQL 14"
+    Value: !Ref rdsaurorapsqldefaultparamgroup14
+    Export:
+      Name: 'gev-dba:rds:parametergroups:aurora-postgresql:non-prod:14'
+      
+  rdsaurorapsqlgxpparamgroup14:
+    Description: "RDS Parameter Group that stores GxP parameters with audit enabled for Aurora PostgreSQL 14"
+    Value: !Ref rdsaurorapsqlgxpparamgroup14
+    Export:
+      Name: 'gev-dba:rds:parametergroups:aurora-postgresql:prod:14'
+
+  rdsauroraclsparamgroup14:
+    Description: "RDS Cluster Parameter Group Aurora PostgreSQL Cluster 14"
+    Value: !Ref rdsauroraclsparamgroup14
+    Export:
+      Name: 'gev-dba:rds:clusterparametergroups:aurora-postgresql:prod:14'
+
+  rdsaurorapsqldefaultparamgroup15:
+    Description: "RDS Parameter Group that stores default parameters with audit enabled for Aurora PostgreSQL 15"
+    Value: !Ref rdsaurorapsqldefaultparamgroup15
+    Export:
+      Name: 'gev-dba:rds:parametergroups:aurora-postgresql:non-prod:15'
+      
+  rdsaurorapsqlgxpparamgroup15:
+    Description: "RDS Parameter Group that stores GxP parameters with audit enabled for Aurora PostgreSQL 15"
+    Value: !Ref rdsaurorapsqlgxpparamgroup15
+    Export:
+      Name: 'gev-dba:rds:parametergroups:aurora-postgresql:prod:15'
+
+  rdsauroraclsparamgroup15:
+    Description: "RDS Cluster Parameter Group Aurora PostgreSQL Cluster  15"
+    Value: !Ref rdsauroraclsparamgroup15
+    Export:
+      Name: 'gev-dba:rds:clusterparametergroups:aurora-postgresql:prod:15'
+

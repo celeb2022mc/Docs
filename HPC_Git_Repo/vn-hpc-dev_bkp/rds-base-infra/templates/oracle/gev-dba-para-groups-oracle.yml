@@ -1,0 +1,79 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This stack creates the parameter groups that are necessary for builds of RDS oracle instances.
+
+
+Parameters:
+  uai:
+    Type: String
+    Description: The uai of the application being charged for usage.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in upper case followed by 7 digits
+    AllowedPattern: '^(uai|uai)[0-9]*$'
+    MinLength: 10
+    MaxLength: 10
+    Default: 'uai3064620'
+
+Resources:
+
+  rdsoraclecomplianceparamgroupee19:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      DBParameterGroupName: 'gev-dba-para-group-prod-oracle-ee-19'
+      Description: This is the parameter group for Oracle EE v19 with compliance parameters enabled.
+      Family: 'oracle-ee-19'
+      Parameters:
+        audit_trail: "DB"
+        optimizer_adaptive_plans: FALSE
+        cursor_sharing: "FORCE"
+        sqlnetora.sqlnet.allowed_logon_version_client: 8
+        sqlnetora.sqlnet.allowed_logon_version_server: 8
+        sqlnetora.sqlnet.send_timeout: 6000
+        sqlnetora.sqlnet.expire_time: 5
+        sqlnetora.sqlnet.inbound_connect_timeout: 990
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'created_by'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+  rdsoracledefaultparamgroupee19:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      DBParameterGroupName: 'gev-dba-para-group-non-prod-oracle-ee-19'
+      Description: This is the default parameter group for Oracle EE v19
+      Family: 'oracle-ee-19'
+      Parameters:
+        optimizer_adaptive_plans: FALSE
+        cursor_sharing: "FORCE"
+        sqlnetora.sqlnet.allowed_logon_version_client: 8
+        sqlnetora.sqlnet.allowed_logon_version_server: 8
+        sqlnetora.sqlnet.send_timeout: 6000
+        sqlnetora.sqlnet.expire_time: 5
+        sqlnetora.sqlnet.inbound_connect_timeout: 990
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'created_by'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+Outputs:
+
+  rdsoraclecomplianceparamgroupee19:
+    Description: "This is the parameter group for Oracle EE v19 with Compliance Parameters enabled."
+    Value: !Ref rdsoraclecomplianceparamgroupee19
+    Export:
+      Name: !Sub 'gev-dba:rds:parametergroups:oracle-ee:prod:19'
+
+  rdsoracledefaultparamgroupee19:
+    Description: "This is the parameter group for Oracle EE v19 with Defaults only enabled."
+    Value: !Ref rdsoracledefaultparamgroupee19
+    Export:
+      Name: !Sub 'gev-dba:rds:parametergroups:oracle-ee:non-prod:19'

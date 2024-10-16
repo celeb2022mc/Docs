@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates a specifies a batch resource specifies the parameters for an AWS Batch scheduling policy.
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15   
+  EnvValue:
+    Type: String
+    Description: Env instance of the resource.  
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  SchedulingPolicyName:
+    Type: String
+    Description: "Enter a name of the scheduling policy"
+    ConstraintDescription: Minimum length of 1. Maximum length of 128.
+    MinLength: !!int 1
+    MaxLength: !!int 128   
+Resources: 
+  BatchSchedulingPolicy:
+    Type: AWS::Batch::SchedulingPolicy
+    Properties: 
+      Name: !Sub '${UAI}_${AppName}_${EnvValue}_${SchedulingPolicyName}'      
+      Tags: 
+          uai: !Ref UAI        
+          env: !Ref EnvValue  
+          app: !Ref AppName
+      
+        
+        
+     
+

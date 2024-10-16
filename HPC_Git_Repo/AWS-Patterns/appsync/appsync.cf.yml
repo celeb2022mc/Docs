@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "AWS CloudFormation Template to create a API Gateway template"
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+  EnvValue:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  GraphQLApiName:
+    Type: String
+    Description: GraphQL Api Name
+  AppSyncDataSourceName:
+    Type: String
+    Description: AppSync DataSource Name
+  LambdaFunctionArnValue:
+    Type: String
+    Description: Enter an arn value of Lambdafunction
+  ServiceRoleArnValue:
+    Type: String
+    Description: Enter an arn value of ServiceRole
+  FieldNameValue:
+    Type: String
+    Description: The GraphQL field on a type that invokes the resolver.  
+  TypeNameValue:
+    Type: String
+    Description: Enter a type value for AppSyncResolver.  
+  AppSyncDataSourceType:
+    Type: String
+    Description: The type of the data source.    
+    AllowedValues:
+    - AWS_LAMBDA
+    - AMAZON_DYNAMODB
+    - AMAZON_ELASTICSEARCH
+    - AMAZON_OPENSEARCH_SERVICE
+    - NONE
+    - HTTP
+    - RELATIONAL_DATABASE
+  AppSyncAuthenticationType:
+    Type: String
+    Description: The type of the data source.    
+    AllowedValues:
+    - API_KEY
+    - AMAZON_COGNITO_USER_POOLS
+    - OPENID_CONNECT
+    - AWS_LAMBDA 
+  ParamSchema:
+    Type: String
+    Description: The text representation of a GraphQL schema in SDL format.
+ 
+Resources:
+  AppSyncAPI:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: !Sub app-${UAI}-${AppName}-${EnvValue}-${GraphQLApiName} 
+      AuthenticationType: !Ref AppSyncAuthenticationType       
+      Tags:      
+        - Key: "uai"
+          Value: !Ref UAI
+        - Key: "app"
+          Value: !Ref AppName
+        - Key: "env"
+          Value: !Ref EnvValue
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  AppSyncSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt [ AppSyncAPI, ApiId ]
+      Definition: !Ref ParamSchema
+
+  AppSyncDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt [ AppSyncAPI, ApiId ]
+      Name: !Ref AppSyncDataSourceName
+      Type: !Ref AppSyncDataSourceType            
+      LambdaConfig:
+        LambdaFunctionArn: !Ref LambdaFunctionArnValue  
+      ServiceRoleArn: !Ref ServiceRoleArnValue 
+
+  AppSyncResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt [ AppSyncAPI, ApiId ]
+      TypeName: !Ref TypeNameValue  
+      FieldName: !Ref FieldNameValue
+      DataSourceName: !GetAtt [ AppSyncDataSource, Name ]
+      RequestMappingTemplate: '{ "version" : "2017-02-28", "operation": "Invoke", "payload": $util.toJson($context.arguments) }'
+      ResponseMappingTemplate: '$util.toJson($context.result)'
+
+  AppSyncAPIKey:
+      Type: AWS::AppSync::ApiKey
+      Properties:
+        ApiId: !GetAtt [ AppSyncAPI, ApiId ]

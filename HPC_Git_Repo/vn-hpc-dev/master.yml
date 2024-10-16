@@ -1,0 +1,258 @@
+# see README.md for content of app
+
+master_vars:
+  # - task_description: Ansible description for task
+  #   stack_name: Name of CloudFormation stack
+  #   template: Path to CloudFormation template
+  #   template_parameters: Path to CloudFormation template parameters (optional parameter)
+  # alternatively provide parameters inline using 'params' attribute
+  # if params are specified they 'win' over template_parameters
+
+  - task_description: Create AZxName, AZxId & CIDR exports
+    stack_name: lz-custom-extra-exports
+    template: export-vpc-defaults/templates/extra-exports.cf.yml
+    params:
+      # total private space is 100.64.32.0/19. It is split into 2 big /20 'buckets' - for VDI and HPC
+      pVDISubnetsCIDR: 100.64.32.0/20
+      pHPCSubnetsCIDR: 100.64.48.0/20
+      AZ3Name: us-east-1c
+      AZ4Name: us-east-1d
+      AZ5Name: us-east-1e
+      AZ6Name: us-east-1f
+      # you need to look these up in the actual account and match them to the logical us-east-1c, etc.
+      #  for this account the mapping is:
+      #    us-east-1a use1-az4
+      #    us-east-1b use1-az6
+      #    us-east-1c use1-az1
+      #    us-east-1d use1-az2
+      #    us-east-1e use1-az3
+      #    us-east-1f use1-az5
+      AZ3ID: use1-az1
+      AZ4ID: use1-az2
+      AZ5ID: use1-az3
+      AZ6ID: use1-az5
+
+
+  # create private NAT GW in app subnet AZ2
+  - task_description: Create private NAT GW in app subnet
+    stack_name: lz-custom-private-natgw
+    template: private-natgw/templates/private-natgw-app-subnet.cf.yml
+    #template_parameters: private-natgw/parameters/private_natgw_AZ2_parameters.yml
+    params:
+      AzName: az2  # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+
+  # route-tables/templates/rt-non-routable.cf.yml
+  - task_description: Create RT for non-routable subnets
+    stack_name: lz-custom-rt-non-routable
+    template: route-tables/templates/rt-non-routable.cf.yml
+    # creates export 'private:rt:id'
+
+  - task_description: Create NACL for VDI subnets
+    stack_name: lz-custom-vdi-nacl
+    template: nacls/templates/private-vdi-subnets-nacls.cf.yml
+    # creates export 'private:vdi:nacl:id'
+
+ # VDI subnets
+  - task_description: Create VDI subnet AZ1
+    stack_name: lz-custom-vdi-subnet-AZ1
+    template: subnets/templates/gp-subnet.yml
+    # template_parameters: subnets/parameters/private_vdi_subnet_AZ1_parameters.yml
+    params:
+      AzName: AZ1 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-vdi-az1
+      SubnetCidrBlock: 100.64.32.0/23
+      NaclExportName: private:vdi:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: vdi
+
+  - task_description: Create VDI subnet AZ2
+    stack_name: lz-custom-vdi-subnet-AZ2
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ2 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-vdi-az2
+      SubnetCidrBlock: 100.64.34.0/23
+      NaclExportName: private:vdi:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: vdi
+
+  - task_description: Create VDI subnet AZ3
+    stack_name: lz-custom-vdi-subnet-AZ3
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ3 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-vdi-az3
+      SubnetCidrBlock: 100.64.36.0/23
+      NaclExportName: private:vdi:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: vdi
+
+  - task_description: Create VDI subnet AZ4
+    stack_name: lz-custom-vdi-subnet-AZ4
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ4 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-vdi-az4
+      SubnetCidrBlock: 100.64.38.0/23
+      NaclExportName: private:vdi:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: vdi
+
+  - task_description: Create VDI subnet AZ5
+    stack_name: lz-custom-vdi-subnet-AZ5
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ5 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-vdi-az5
+      SubnetCidrBlock: 100.64.40.0/23
+      NaclExportName: private:vdi:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: vdi
+  - task_description: Create VDI subnet AZ6
+    stack_name: lz-custom-vdi-subnet-AZ6
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ6 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-vdi-az6
+      SubnetCidrBlock: 100.64.42.0/23
+      NaclExportName: private:vdi:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: vdi
+
+ # HPC subnets
+  - task_description: Create NACL for HPC node subnets
+    stack_name: lz-custom-nacl-hpc
+    template: nacls/templates/private-hpc-subnets-nacls.cf.yml
+    # creates export 'private:hpc:nacl:id'
+
+  - task_description: Create HPC subnet AZ1
+    stack_name: lz-custom-hpc-subnet-AZ1
+    template: subnets/templates/gp-subnet.yml
+    # template_parameters: subnets/parameters/private_vdi_subnet_AZ1_parameters.yml
+    params:
+      AzName: AZ1 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-hpc-az1
+      SubnetCidrBlock: 100.64.48.0/23
+      NaclExportName: private:hpc:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: hpc
+
+  - task_description: Create HPC subnet AZ2
+    stack_name: lz-custom-hpc-subnet-AZ2
+    template: subnets/templates/gp-subnet.yml
+    # template_parameters: subnets/parameters/private_vdi_subnet_AZ2_parameters.yml
+    params:
+      AzName: AZ2 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-hpc-az2
+      SubnetCidrBlock: 100.64.50.0/23
+      NaclExportName: private:hpc:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: hpc
+
+  - task_description: Create HPC subnet AZ3
+    stack_name: lz-custom-hpc-subnet-AZ3
+    template: subnets/templates/gp-subnet.yml
+    # template_parameters: subnets/parameters/private_vdi_subnet_AZ3_parameters.yml
+    params:
+      AzName: AZ3 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-hpc-az3
+      SubnetCidrBlock: 100.64.52.0/23
+      NaclExportName: private:hpc:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: hpc
+
+  - task_description: Create HPC subnet AZ4
+    stack_name: lz-custom-hpc-subnet-AZ4
+    template: subnets/templates/gp-subnet.yml
+    # template_parameters: subnets/parameters/private_vdi_subnet_AZ4_parameters.yml
+    params:
+      AzName: AZ4 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-hpc-az4
+      SubnetCidrBlock: 100.64.54.0/23
+      NaclExportName: private:hpc:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: hpc
+
+  - task_description: Create HPC subnet AZ5
+    stack_name: lz-custom-hpc-subnet-AZ5
+    template: subnets/templates/gp-subnet.yml
+    # template_parameters: subnets/parameters/private_vdi_subnet_AZ5_parameters.yml
+    params:
+      AzName: AZ5 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-hpc-az5
+      SubnetCidrBlock: 100.64.56.0/23
+      NaclExportName: private:hpc:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: hpc
+
+  - task_description: Create HPC subnet AZ6
+    stack_name: lz-custom-hpc-subnet-AZ6
+    template: subnets/templates/gp-subnet.yml
+    # template_parameters: subnets/parameters/private_vdi_subnet_AZ6_parameters.yml
+    params:
+      AzName: AZ6 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: private-hpc-az6
+      SubnetCidrBlock: 100.64.58.0/23
+      NaclExportName: private:hpc:nacl:id
+      RouteTableExportName: private:rt:id
+      SubnetType: hpc
+
+  # create DB subnets
+  - task_description: "Create private DB subnet 1"
+    stack_name: db-subnet-az1
+    template: subnets/templates/gp-subnet.yml
+    template_parameters: subnets/parameters/database_subnet_az1_parameters.yml
+
+  - task_description: "Create private DB subnet 2"
+    stack_name: db-subnet-az2
+    template: subnets/templates/gp-subnet.yml
+    template_parameters: subnets/parameters/database_subnet_az2_parameters.yml
+
+  # create DB subnets group
+  - task_description: "Create DB subnet group"
+    stack_name: db-subnet-group
+    template: subnets/templates/db-subnet-group.yml
+
+  - task_description: Create App subnet AZ3
+    stack_name: app-subnet-AZ3
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ3 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: internal-app-az3
+      SubnetCidrBlock: 10.244.49.128/27
+      NaclExportName: "internal-app-nacl"
+      RouteTableExportName: "rt-PrivateId"
+      SubnetType: Internal-Application
+
+  - task_description: Create App subnet AZ4
+    stack_name: app-subnet-AZ4
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ4 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: internal-app-az4
+      SubnetCidrBlock: 10.244.49.160/27
+      NaclExportName: "internal-app-nacl"
+      RouteTableExportName: "rt-PrivateId"
+      SubnetType: Internal-Application
+
+  - task_description: Create App subnet AZ5
+    stack_name: app-subnet-AZ5
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ5 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: internal-app-az5
+      SubnetCidrBlock: 10.244.49.64/27
+      NaclExportName: "internal-app-nacl"
+      RouteTableExportName: "rt-PrivateId"
+      SubnetType: Internal-Application
+
+  - task_description: Create App subnet AZ6
+    stack_name: app-subnet-AZ6
+    template: subnets/templates/gp-subnet.yml
+    params:
+      AzName: AZ6 # has to be capitals when it is refering to the actual AZname export, has to be lower case when refering to the subnet export
+      SubnetName: internal-app-az6
+      SubnetCidrBlock: 10.244.49.96/27
+      NaclExportName: "internal-app-nacl"
+      RouteTableExportName: "rt-PrivateId"
+      SubnetType: Internal-Application

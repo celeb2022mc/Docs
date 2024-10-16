@@ -1,0 +1,35 @@
+---
+## History
+ # 01-Oct-2024: Initial version for non-routable IP space
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private NAT GW for non-routable subnets built in internal-app subnet
+
+Parameters:
+  AzName:
+    Description: Availability Zone Id (AZ1, AZ2, AZ3)
+    Type: String
+    AllowedValues: [ az1, az2, az3, az4, az5, az6 ]
+
+Resources:
+  rPrivateNAT:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      ConnectivityType: private
+      SubnetId:
+        # github validation parser fails to recongnize
+        #   Fn::ImportValue !Sub 'internal-app-${AzName}'
+        # as valid (even though it is)
+        Fn::ImportValue:
+          !Sub "internal-app-${AzName}"
+
+      Tags:
+        - Key: Name
+          Value: privateNAT-for-non-routable-subnets
+
+Outputs:
+  RouteTable:
+    Description: The id of the NAT GW
+    Value: !Ref rPrivateNAT
+    Export:
+      Name: private:natgw:id

@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description:  Base SG to assign to Windows EC2 instances
+Resources:
+  BaseWindowsImmutableSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: Vernova-Immutable-Windows-SG
+      GroupDescription: Base SG to assign to Windows EC2 instances
+      VpcId: !ImportValue vpcid
+      Tags:
+      - Key: Name
+        Value: Vernova-Immutable-Windows-SG
+
+      ## need to check for domain join --- https://devcloud.swcoe.ge.com/devspace/display/WZSLF/Windows+AD+Domain+Join+for+GR+Standard+Accounts
+      ## Need to check for Kerebros
+      SecurityGroupIngress:
+
+        # Allow DNS UDP/TCP from resolver
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          SourceSecurityGroupId: !ImportValue VPCResolverSG
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          SourceSecurityGroupId: !ImportValue VPCResolverSG
+      
+      SecurityGroupEgress:
+         #All outbound allowed
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+        
+Outputs:
+  BaseWindowsImmutableSG:
+    Description: Base SG to assign to Windows EC2 instances
+    Value: !Ref BaseWindowsImmutableSG
+    Export:
+      Name: Vernova-Immutable-Windows-SG

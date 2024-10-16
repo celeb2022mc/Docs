@@ -1,0 +1,28 @@
+---
+# History
+# 11/18 : Fixing the NAt Gate Way Id.
+# Aligned Splunk to public IPS posted in https://devcloud.swcoe.ge.com/devspace/display/GKFDB/a.+Splunk+UF+Prerequisites 
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Route Table  CloudFormation template for endpoint subnets
+Resources:
+  EPRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !ImportValue 'vpcid'
+      Tags:
+        - Key: Name
+          Value: rt-Endpoint
+          
+  # AppRouteOut1:
+  #   Type: AWS::EC2::Route
+  #   Properties:
+  #     RouteTableId: !Ref 'EPRouteTable'
+  #     DestinationCidrBlock: 0.0.0.0/0
+  #     VpcEndpointId: !Ref NATGWId   
+    
+Outputs:
+  RouteTable:
+    Description: 'The id of the route table.'
+    Value: !Ref EPRouteTable
+    Export:
+      Name: 'rt-EpId'

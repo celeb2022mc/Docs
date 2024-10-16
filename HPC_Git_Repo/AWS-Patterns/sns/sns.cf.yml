@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create SNS
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+    
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+    
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+   
+  TopicType:
+    Type: String
+    Description: Queue Type is FIFO
+    AllowedValues: 
+    - true
+    - false
+    
+  # PolicyDocument:
+  #   Type: String
+  #   Description: Enter the policy for this Amazon SNS topic
+  #   Default: '{}'
+    
+  SNSTopicName:
+    Type: String
+    Description: Enter a name for the Amazon SNS topic
+    
+  SNSTopicDisplayName:
+    Type: String
+    Description: Enter a display name for the Amazon SNS topic
+ 
+  # KmsMasterKeyId:
+  #   Type: String
+  #   Description: The ID of an AWS Key Management Service (AWS KMS) key used for encryption.
+  #   Default: alias/aws/sqs
+    
+
+       
+Conditions: 
+    TopicName1 : !Equals [!Ref TopicType, true]
+    
+Resources:
+  MySNSTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      TopicName: !If [TopicName1, !Sub "${UAI}-${AppName}-${Env}-${SNSTopicName}.fifo" ,!Sub "${UAI}-${AppName}-${Env}-${SNSTopicName}"]  
+      FifoTopic: !If [TopicName1, true,!Ref "AWS::NoValue"]
+      DisplayName: !Ref SNSTopicDisplayName
+      # KmsMasterKeyId: !Ref KmsMasterKeyId
+      Tags: 
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+        - Key: app
+          Value: !Ref AppName
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+          
+  # MySNSTopicPolicy:     
+  #   Type: AWS::SNS::TopicPolicy
+  #   Properties:
+  #     PolicyDocument: !Ref PolicyDocument
+  #     Topics: 
+  #      - Ref: MySNSTopic
+       
+Outputs:
+
+  SNSTopicName:
+    Description: Name of SNS queue
+    Value: !Ref MySNSTopic

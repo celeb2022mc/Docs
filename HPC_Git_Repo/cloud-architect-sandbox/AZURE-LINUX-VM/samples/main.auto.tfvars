@@ -1,0 +1,7 @@
+subscription_id="9fd8d0ba-5d07-45b2-84e6-1c85cc79832d"
+subcode="2013"
+region="East US"
+uai="uai3064621"
+env="dev"
+appName="test"
+lzuai="uai3064621"

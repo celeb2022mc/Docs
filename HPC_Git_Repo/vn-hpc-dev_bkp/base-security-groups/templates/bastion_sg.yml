@@ -1,0 +1,30 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Base SG to allow connectivity to Bastions
+Resources:
+  BastionSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: Vernova-Bastion-SG
+      GroupDescription: Base SG to allow connectivity to Bastions
+      VpcId: !ImportValue vpcid
+      Tags:
+      - Key: Name
+        Value: Vernova-Bastion-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourcePrefixListId: !ImportValue Vernova-Bastion-Prefix-List
+       
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          SourcePrefixListId: !ImportValue Vernova-Bastion-Prefix-List
+  
+Outputs:
+  BastionSG:
+    Description: Base SG to allow connectivity to Bastions
+    Value: !Ref BastionSG
+    Export:
+      Name: Vernova-Bastion-SG

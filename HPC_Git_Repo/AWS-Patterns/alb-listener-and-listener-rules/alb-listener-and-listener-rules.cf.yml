@@ -1,0 +1,128 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create an ALB and listener rule
+
+Parameters:
+  ALBArn:
+    Type: String
+    Description: ARN of the ALB
+
+  TGArn:
+    Type: String
+    Description: ARN of the Default TG
+ 
+  CertificateArn:
+    Type: String
+    Description: ARN of the certificate
+    
+  PathPatternToUse:
+    Type: String
+    Description: Context path pattern to use ECS service  
+      
+  issuerToUse: 
+    Type: String
+    Description: Issuer url to use, Include https://
+    Default: https://fssfed.ge.com/fss
+      
+  authEndpointToUse:
+    Type: String
+    Description: authEndpoint url to use, Include https://
+    Default: https://fssfed.ge.com/fss/as/authorization.oauth2
+    
+  tokenEndpointToUse:
+    Type: String
+    Description: tokenEndpoint url to use, Include https://
+    Default: https://fssfed.ge.com/fss/as/token.oauth2
+    
+  userInfoEndpointToUse:
+    Type: String
+    Description: userInfoEndpoint url to use, Include https://
+    Default: https://fssfed.ge.com/fss/idp/userinfo.openid
+    
+  ClientIdToUse:
+    Type: String
+    Description: Client id to uses for authentication
+    
+  SecretToUse:
+    Type: String
+    Description: Client Secret to use
+    
+  scopeToUse:
+    Type: String
+    Description: Scope to use, use '' and place all scopes to use seperated by space
+    Default: 'openid profile'
+  
+Resources:
+
+# https listener
+  HTTPSlistener1:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+     Certificates: 
+     - CertificateArn: !Ref CertificateArn
+     DefaultActions:
+     - Type: 'authenticate-oidc'
+       AuthenticateOidcConfig:
+         OnUnauthenticatedRequest: 'authenticate'
+         Issuer: !Ref issuerToUse
+         AuthorizationEndpoint: !Ref authEndpointToUse
+         TokenEndpoint: !Ref tokenEndpointToUse
+         UserInfoEndpoint: !Ref userInfoEndpointToUse
+         ClientId: !Ref ClientIdToUse
+         ClientSecret: !Ref SecretToUse
+         Scope: !Ref scopeToUse
+       Order: 1
+     - Type: 'forward'
+       ForwardConfig:
+         TargetGroups:
+         - TargetGroupArn: !Ref TGArn
+       Order: 2
+     LoadBalancerArn: !Ref ALBArn
+     Port: 443
+     Protocol: "HTTPS"
+     SslPolicy: "ELBSecurityPolicy-TLS-1-2-2017-01"
+ 
+ # http listener
+  HTTPlistener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:          
+     DefaultActions:
+     - Type: redirect
+       RedirectConfig:
+         Protocol: "HTTPS"
+         Port: "443"
+         Host: "#{host}"
+         Path: "/#{path}"
+         Query: "#{query}"
+         StatusCode: "HTTP_301"
+       Order: 1
+     LoadBalancerArn: !Ref ALBArn
+     Port: 80
+     Protocol: HTTP
+
+#Listener Rules
+  TGListenersRule1:
+   Type: AWS::ElasticLoadBalancingV2::ListenerRule
+   Properties:
+     Actions:
+     - Type: 'authenticate-oidc'
+       AuthenticateOidcConfig:
+         OnUnauthenticatedRequest: 'authenticate'
+         Issuer: !Ref issuerToUse
+         AuthorizationEndpoint: !Ref authEndpointToUse
+         TokenEndpoint: !Ref tokenEndpointToUse
+         UserInfoEndpoint: !Ref userInfoEndpointToUse
+         ClientId: !Ref ClientIdToUse
+         ClientSecret: !Ref SecretToUse
+         Scope: !Ref scopeToUse
+       Order: 1
+     - Type: forward
+       TargetGroupArn: !Ref TGArn
+       Order: 2
+     Conditions:
+     - Field: path-pattern
+       Values:
+       - !Sub ${PathPatternToUse}/*
+     ListenerArn: !Ref HTTPSlistener1
+     Priority: 1 
+

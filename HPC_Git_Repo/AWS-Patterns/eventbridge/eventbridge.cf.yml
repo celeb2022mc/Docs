@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "AWS CloudFormation Template to create a EventBridge template"
+
+## History:
+  # 25-Jun-2024: added optional input for eventbridge
+
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+  AppName:
+    Type: String
+    Description: 'Which instance of the application. Example: app1. Must be lowercase. Max 15 chars.'
+    AllowedPattern: ^[a-z][a-z0-9\._\-]*[a-z0-9]$
+    ConstraintDescription: Must contain only lower case letters, digits or -. Min 3 chars. Max 15. Must start with a letter and end with a letter or digit
+    MinLength: !!int 3
+    MaxLength: !!int 15
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  
+  EventruleeName:
+    Description: Enter a event source name
+    Type: String
+  EventBridgeFunction:
+    Description: Enter an ARN number of Lambda function
+    Type: String
+  EventBridgeFunctionID:
+    Description: Enter Lambda function ID
+    Type: String 
+  EventRuleDescription:
+    Description: Enter description
+    Type: String 
+  ScheduleExpression:
+    Description: Enter description
+    Type: String 
+
+  EventtargetInput:
+    Description: Enter input to be passed to the event target
+    Type: String
+    Default: none   
+
+  ScheduleNeeded:
+    Type: String
+    Description: 'true/false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  TriggerNeeded:
+    Type: String
+    Description: 'true/false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  # EventPattern:
+  #   Type: String
+  #   Description: What Event should trigger this rule?
+  #   Default: '{"source":["aws.sts"],"details":{"eventName":"AssumeRole"},"detail-type": ["AWS API Call via CloudTrail"]}'
+
+  Source:
+    Type: CommaDelimitedList
+  # Details:
+  #   Type: String
+    # Type: CommaDelimitedList
+  DetailType:
+    Type: CommaDelimitedList
+
+Conditions:
+  Schedule: !Equals [ !Ref ScheduleNeeded, 'true' ]
+  Trigger: !Equals [ !Ref TriggerNeeded, 'true' ]  
+
+  NoSourceCheck: !Equals [ !Join ["",!Ref Source] , ""]
+  # NoEventNameCheck: !Equals [ !Join ["",!Ref Details] , ""]
+  # NoEventNameCheck: !Equals [ !Ref Details , ""]
+  NoDetailTypeCheck: !Equals [ !Join ["", !Ref DetailType] , ""]
+  EventtargetInputEmpty: !Equals [ !Ref EventtargetInput, 'none' ]
+
+Resources:
+
+  EventRuleTrigger:
+    Type: 'AWS::Events::Rule'
+    Condition: Trigger
+    Properties:
+      Description: !Ref EventRuleDescription
+      EventBusName: default
+      # EventPattern: !Ref EventPattern
+      EventPattern:
+        source: !If [NoSourceCheck , !Ref AWS::NoValue, !Ref Source ] 
+        # details: !If [NoSourceCheck , !Ref AWS::NoValue, !Ref Details]
+        detail-type: !If [NoSourceCheck , !Ref AWS::NoValue, !Ref DetailType]
+      Name: !Sub 'app-${UAI}-${AppName}-${Env}-${EventruleeName}-trigger' 
+      State: ENABLED
+      Targets:
+      - 
+        Arn: !Ref EventBridgeFunction          
+        Id: !Ref EventBridgeFunctionID
+        Input: !If [ EventtargetInputEmpty, !Ref 'AWS::NoValue', !Ref EventtargetInput ]
+
+  EventRuleScheduled:
+    Type: 'AWS::Events::Rule'
+    Condition: Schedule
+    Properties:
+      Description: !Ref EventRuleDescription
+      EventBusName: default
+      ScheduleExpression: !Ref ScheduleExpression
+      Name: !Sub 'app-${UAI}-${AppName}-${Env}-${EventruleeName}-schedule' 
+      State: ENABLED
+      Targets:
+      - 
+        Arn: !Ref EventBridgeFunction          
+        Id: !Ref EventBridgeFunctionID
+        Input: !If [ EventtargetInputEmpty, !Ref 'AWS::NoValue', !Ref EventtargetInput ]
+
+  PermissionForEventsToInvokeLambdaSchedule: 
+    Type: AWS::Lambda::Permission
+    Condition: Schedule
+    Properties: 
+      FunctionName: !Ref EventBridgeFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt EventRuleScheduled.Arn
+
+  PermissionForEventsToInvokeLambdaTrigger: 
+    Type: AWS::Lambda::Permission
+    Condition: Trigger
+    Properties: 
+      FunctionName: !Ref EventBridgeFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt EventRuleTrigger.Arn

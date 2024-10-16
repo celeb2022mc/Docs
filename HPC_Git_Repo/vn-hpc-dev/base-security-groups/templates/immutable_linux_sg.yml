@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Base SG to assign to Linux EC2 instances
+Resources:
+  BaseLinuxImmutableSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: Vernova-Immutable-Linux-SG
+      GroupDescription: Base SG to assign to Linux EC2 instances
+      VpcId: !ImportValue vpcid
+      Tags:
+      - Key: Name
+        Value: Vernova-Immutable-Linux-SG
+      ## Inbound rules
+      SecurityGroupIngress:
+        # Allow DNS UDP/TCP from resolver
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          SourceSecurityGroupId: !ImportValue VPCResolverSG
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          SourceSecurityGroupId: !ImportValue VPCResolverSG
+          
+      SecurityGroupEgress:
+         #All outbound allowed
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+Outputs:
+  BaseLinuxImmutableSG:
+    Description: Base SG to assign to Linux EC2 instances
+    Value: !Ref BaseLinuxImmutableSG
+    Export:
+      Name: Vernova-Immutable-Linux-SG
+
+  

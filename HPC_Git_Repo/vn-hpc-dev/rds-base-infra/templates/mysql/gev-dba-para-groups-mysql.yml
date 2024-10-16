@@ -1,0 +1,79 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This stack creates the option groups (and default parameter groups) that are neccessary for builds of RDS instances.
+              It must be created prior to any RDS Instances
+              Last version 31-Dec-2018
+
+Parameters:
+  uai:
+    Type: String
+    Description: The uai of the application being charged for usage.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in upper case followed by 7 digits
+    AllowedPattern: '^(uai|uai)[0-9]*$'
+    MinLength: 10
+    MaxLength: 10
+    Default: 'uai3064620'
+
+Resources:
+
+  rdsmysqldefaultparamgroup80:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: mysql non-prod parameter group with slow query log enabled and Event scheduler enabled , added general_log because it does not have audit.
+      Family: 'mysql8.0'
+      DBParameterGroupName: 'gev-dba-para-group-non-prod-mysql-8'
+      Parameters:
+        init_connect: "SET NAMES utf8"
+        event_scheduler: "ON"
+        slow_query_log: "1"
+        require_secure_transport: "ON"
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+
+  rdsmysqlsoxparamgroup80:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: mysql Prod parameter group with slow query log enabled and Event scheduler enabled , added general_log because it does not have audit.
+      Family: 'mysql8.0'
+      DBParameterGroupName: 'gev-dba-para-group-prod-mysql-8'
+      Parameters:
+        init_connect: "SET NAMES utf8"
+        event_scheduler: "ON"
+        slow_query_log: "1"
+        general_log: "1"
+        require_secure_transport: "ON"
+      Tags: 
+        - Key: 'env'
+          Value: 'prd'
+        - Key: 'uai'
+          Value: !Sub '${uai}'
+        - Key: 'support-group'
+          Value: 'dig-tech-cts-cloud-db-support-team'
+        - Key: 'created'
+          Value: 'gev-dba'
+        - Key: 'Stack name'
+          Value: !Sub '${AWS::StackName}'
+
+Outputs:
+
+  rdsmysqldefaultparamgroup80:
+    Description: "mysql default parameter group with slow query log enabled and Event scheduler enabled , added general_log because it does not have audit."
+    Value: !Ref rdsmysqldefaultparamgroup80
+    Export:
+      Name: !Sub 'gev-dba:rds:parametergroups:mysql:non-prod:80'
+
+  rdsmysqlsoxparamgroup80:
+    Description: "mysql default parameter group with slow query log enabled and Event scheduler enabled , added general_log because it does not have audit."
+    Value: !Ref rdsmysqlsoxparamgroup80
+    Export:
+      Name: !Sub 'gev-dba:rds:parametergroups:mysql:prod:80'

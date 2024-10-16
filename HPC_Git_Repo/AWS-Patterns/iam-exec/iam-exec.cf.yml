@@ -1,0 +1,327 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS CloudFormation Template to create IAM Role
+
+## History:
+  # 06-Jun-2024: Added default values for task role and exec role
+
+
+Parameters:
+
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: "[a-z0-9\\-]*"
+    Description: AppName, keep to 15 characters or less.
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+  Service:
+    Type: String
+    Description: Which service will assume this role ?
+    AllowedValues:
+    - lambda
+    - ecs-tasks
+    - ec2
+
+  TaskRole:
+    Type: String
+    Description: true/false. Is this ECS Task Role ?
+    Default: false
+    AllowedValues:
+    - true
+    - false
+
+  ExecRole:
+    Type: String
+    Description: true/false. Is this ECS Task Exec Role ?
+    Default: false
+    AllowedValues:
+    - true
+    - false
+
+Conditions:
+  IsLambda: !Equals 
+    - !Ref Service
+    - lambda
+  IsECS: !Equals 
+    - !Ref Service
+    - ecs-tasks
+  IsECSTask: !Equals 
+    - !Ref TaskRole
+    - true
+  IsECSExec: !Equals 
+    - !Ref ExecRole
+    - true
+# If ExecRole is true then we do not need common policy.
+# We use this to create common policy
+  SkipCommon: !Equals 
+    - !Ref ExecRole
+    - false
+  SkipExecRole: !Equals 
+    - !Ref TaskRole
+    - true
+
+  IsEc2: !Equals 
+    - !Ref Service
+    - ec2
+
+Resources:
+  AWSRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: 
+        Fn::If: 
+        - IsECSTask 
+        - !Sub app-${UAI}-${AppName}-${Env}-${Service}-task-role
+        - !Sub app-${UAI}-${AppName}-${Env}-${Service}-exec-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - !Sub ${Service}.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: !Sub /app-${UAI}/
+      Tags:
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppName
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: IsEc2    
+    Properties:
+      InstanceProfileName: !Sub app-${UAI}-${AppName}-${Env}-instance-profile-role
+      Path: !Sub /app-${UAI}/
+      Roles: 
+        - !Ref AWSRole
+
+  CommonPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: SkipCommon
+    Properties:
+      Description: CommonPOlicy
+      ManagedPolicyName: !Sub app-${UAI}-${AppName}-${Env}-${Service}-common-policy
+      Path: !Sub /app-${UAI}/
+      Roles: 
+        - !Ref AWSRole
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+        - 
+          Action:
+          - secretsmanager:GetSecretValue
+          - secretsmanager:ListSecrets
+          - secretsmanager:Describe*
+          Resource:
+          - !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/app-${UAI}*
+          - !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:app-${UAI}*
+          Effect: Allow
+
+        - 
+          Action:
+          - sqs:DeleteMessage
+          - sqs:Get*
+          - sqs:List*
+          - sqs:PurgeQueue
+          - sqs:ReceiveMessage
+          - sqs:SendMessage
+          Resource:
+          - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:*app-${UAI}*
+          Effect: Allow
+
+        - 
+          Action:
+          - sns:Get*
+          - sns:List*
+          - sns:Publish
+          - sns:Subscribe
+          Resource:
+          - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:*app-${UAI}*
+          Effect: Allow
+
+
+        - Action: logs:*
+          Resource: arn:aws:logs:*:*:*
+          Effect: Allow
+
+        - Action:
+          - s3:Get*
+          - s3:List*
+          - s3:Put*
+          - s3:DeleteObject
+          Resource:
+          - !Sub arn:aws:s3:::app-${UAI}*/*
+          Effect: Allow
+
+        - Action:
+          - s3:GetEncryptionConfiguration
+          Resource: "*"
+          Effect: Allow              
+
+  LambdaPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsLambda
+    Properties:
+      Description: LambdaPOlicy
+      ManagedPolicyName: !Sub app-${UAI}-${AppName}-${Env}-Lambda-Policy
+      Path: !Sub /app-${UAI}/
+      Roles: 
+        - !Ref AWSRole
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+        - 
+          Action:
+          - ec2:CreateNetworkInterface
+          - ec2:DescribeNetworkInterfaces
+          - ec2:DetachNetworkInterface
+          - ec2:DeleteNetworkInterface
+          Resource: "*"
+          Effect: Allow
+
+        - 
+          Action: ec2:CreateNetworkInterfacePermission
+          Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*
+          Effect: Allow
+          Condition:
+            StringEquals:
+              ec2:AuthorizedService: lambda.amazonaws.com
+
+  ECSExecPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsECSExec
+    Properties:
+      Description: ECS Exec Policy
+      ManagedPolicyName: !Sub app-${UAI}-${AppName}-${Env}-ECSExec-Policy
+      Path: !Sub /app-${UAI}/
+      Roles: 
+        - !Ref AWSRole
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+        - Action: ecr:GetAuthorizationToken
+          Resource: "*"
+          Effect: Allow
+        - Action:
+          - logs:CreateLogStream
+          - logs:PutLogEvents
+          Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${UAI}*
+          Effect: Allow
+        - Action:
+          - ecr:BatchCheckLayerAvailability
+          - ecr:GetDownloadUrlForLayer
+          - ecr:BatchGetImage
+          Resource:
+          - !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${UAI}* 
+          Effect: Allow
+
+  ECSTaskPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsECSTask
+    Properties:
+      Description: ECS Task Policy
+      ManagedPolicyName: !Sub app-${UAI}-${AppName}-${Env}-ECSTask-Policy
+      Path: !Sub /app-${UAI}/
+      Roles: 
+        - !Ref AWSRole
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+        - Sid: PolicyToAllowExecuteSSM
+          Effect: Allow
+          Action:
+          - ssmmessages:CreateControlChannel
+          - ssmmessages:CreateDataChannel
+          - ssmmessages:OpenControlChannel
+          - ssmmessages:OpenDataChannel
+          Resource: "*"
+
+  EC2Policy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsEc2
+    Properties:
+      Description: Ec2  Policy
+      ManagedPolicyName: !Sub app-${UAI}-${AppName}-${Env}-EC2-Policy
+      Path: !Sub /app-${UAI}/
+      Roles: 
+        - !Ref AWSRole
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+        - Sid: DefaultSSMPolicy
+          Effect: Allow
+          Action:
+          - ssm:DescribeAssociation
+          - ssm:GetDeployablePatchSnapshotForInstance
+          - ssm:GetDocument
+          - ssm:DescribeDocument
+          - ssm:GetManifest
+          - ssm:ListAssociations
+          - ssm:ListInstanceAssociations
+          - ssm:PutInventory
+          - ssm:PutComplianceItems
+          - ssm:PutConfigurePackageResult
+          - ssm:UpdateAssociationStatus
+          - ssm:UpdateInstanceAssociationStatus
+          - ssm:UpdateInstanceInformation
+          - ssmmessages:CreateControlChannel
+          - ssmmessages:CreateDataChannel
+          - ssmmessages:OpenControlChannel
+          - ssmmessages:OpenDataChannel
+          - ec2messages:AcknowledgeMessage
+          - ec2messages:DeleteMessage
+          - ec2messages:FailMessage
+          - ec2messages:GetEndpoint
+          - ec2messages:GetMessages
+          - ec2messages:SendReply
+          Resource: "*"
+        - Sid: S3GetforSSM
+          Effect: Allow
+          Action:
+          - s3:GetObject
+          Resource:
+          - arn:aws:s3:::aws-ssm-*/*
+          - arn:aws:s3:::aws-windows-downloads-*/*
+          - arn:aws:s3:::amazon-ssm-*/*
+          - arn:aws:s3:::amazon-ssm-packages-*/*
+          - arn:aws:s3:::region-birdwatcher-*/*
+          - arn:aws:s3:::patch-baseline-snapshot-*/*
+          - arn:aws:s3:::gp-us-east-ops-automation-common-tools/*
+          - arn:aws:s3:::uai3027632-pw-sec-automation-gp-ops/*
+        - Sid: Logs
+          Effect: Allow
+          Action:
+          - cloudwatch:Put*
+          - ec2:DescribeInstanceStatus
+          - logs:CreateLogGroup
+          - logs:CreateLogStream
+          - logs:DescribeLogGroups
+          - logs:DescribeLogStreams
+          - logs:PutLogEvents
+          Resource: '*'          
+Outputs:
+  IAMRoleARN:
+    Description: RoleARN
+    Value: !GetAtt  AWSRole.Arn
+  IAMRoleName:
+    Description: RoleARN
+    Value: !Ref  AWSRole

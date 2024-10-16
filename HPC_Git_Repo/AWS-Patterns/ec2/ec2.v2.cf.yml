@@ -1,0 +1,367 @@
+AWSTemplateFormatVersion: 2010-09-09 
+Description: Build applicaiton server
+
+## History:
+  # 06-Jun-2024: added option to provide a sg as input for ha configuration
+  # Added MFA Script as part of the User data . so SA does not need to run it manually.
+  # Fixed Condition issue with the MFA script
+
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+
+  AppName:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: "[a-z0-9\\-]*"
+    Description: AppName, keep to 15 characters or less.
+
+  AppInstance:
+    Type: String
+    Description: "App Instance for ex: jenkins, app, web "
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ] 
+
+  CTOCloudOpsManaged:
+    Type: String
+    Default: 'yes'
+    Description: Is this Server Managed by CTOCloudOps?
+    AllowedValues: [ 'yes', 'no' ]
+
+  AppEnvCfgID:
+    Type: String
+    Description: Please provide App cfg ID and we can find in service-now in your applications env.
+
+  Platform:
+    Type: String
+    Description: Linux/Ubuntu or Windows ?
+    AllowedValues:
+    - Linux
+    - Windows
+
+  VolumeSize:
+    Type: Number 
+    Description: Size of disk (GB) to attach
+    Default: 300
+
+  VolumeMount:
+    Type: String 
+    Description: Mount path of the disk
+
+  ServerAMI:
+    Type: String
+    Description: server ami-id
+        
+  Ec2InstanceProfile:
+    Type: String
+    Description: Instance profile for server (Name only not ARN or PATH)
+    Default: ''
+  
+  EC2Type:
+    Type: String 
+    Description: Instance type to build
+    Default: t3.medium
+    AllowedValues:
+      - t3.medium
+      - m5.large
+      - m5.xlarge
+      - m5.2xlarge
+
+  NeedAppSG:
+    Type: String
+    Description: Do you want to attach an App SG on server ?
+    AllowedValues:
+      - 'yes'
+      - 'no'
+  AdditionalAppSG:
+    Type: String
+    Description: security group to be attached to ec2
+    Default: ''
+
+Conditions:
+  AppSGCondition: !Equals [ !Ref NeedAppSG, 'yes' ]
+  AdditionalAppSGCondition: !Equals [ !Ref AdditionalAppSG, '' ]
+
+Mappings: 
+  PatchGroupMap: 
+    Linux: 
+      prd: "Patch-App-PrdLinux"
+      dev: "Patch-App-NonPrdLinux"
+      qa: "Patch-App-NonPrdLinux"
+      stg: "Patch-App-NonPrdLinux"
+    Windows:
+      prd: "Patch-App-PrdWindows"
+      dev: "Patch-App-NonPrdWindows"
+      qa: "Patch-App-NonPrdWindows"
+      stg: "Patch-App-NonPrdWindows"
+  MaintanceWindow: 
+   Linux: 
+     prd: "MO-WK2-SA-0000"
+     dev: "MO-WK1-SA-0000"
+     qa: "MO-WK1-SA-0000"
+     stg: "MO-WK1-SA-0000"
+   Windows:
+     prd: "MO-WK3-SA-0000"
+     dev: "MO-WK2-SA-0000"
+     qa: "MO-WK2-SA-0000"
+     stg: "MO-WK2-SA-0000"
+
+Resources:
+
+  AppSG:
+    Type: AWS::EC2::SecurityGroup
+    Condition: AppSGCondition
+    Properties:
+      GroupDescription: !Sub "SG for ${UAI}-${AppName}-${AppInstance}-${Env} server"
+      GroupName: !Sub "app-${UAI}-${AppName}-${AppInstance}-${Env}"
+      VpcId: !ImportValue 'vpcid'
+      Tags:
+        - Key: Name
+          Value: !Sub "app-${UAI}-${AppName}-${AppInstance}-${Env}"
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppInstance
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  AppServer:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      Comment: Registration
+      'AWS::CloudFormation::Init':
+        configSets:
+          default:
+            - volumes         
+        volumes:
+          files:
+            /usr/local/bin/volumes.sh:
+              content:
+                'Fn::Join':
+                - "\n"
+                - - "#!/bin/bash"
+                  - ''
+                  - cd /tmp
+                  - ''
+                  - ". /etc/os-release"
+                  - "echo $ID Server"
+
+                  - if [ "$ID" = "centos" ]  || [ "$ID" = "rhel" ] || [ "$ID" = "amzn" ] || ["$ID" = "ol"]; then
+                  - echo "$ID Server"
+                  - yum install jq -y
+                  - elif [ "$ID" = "ubuntu" ]; then
+                  - echo "Ubuntu Server"
+                  - apt-get install jq -y
+                  - else
+                  - echo "Other OS Found"
+                  - fi
+                  - ''
+                  - export Volume=`curl http://169.254.169.254/latest/user-data |grep Volume |head -1 |cut -d '=' -f 2`
+                  - ''
+                  - export InstanceId=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+                  - ''
+                  - export region=`curl http://169.254.169.254/latest/user-data |grep awsregion |head -1 |cut -d '=' -f 2`
+                  - ''
+                  - EC2DOCUMENT=$(curl -s -S 'http://169.254.169.254/latest/dynamic/instance-identity/document/')
+                  - ''
+                  - AWS_ACCOUNT_ID=$(echo "${EC2DOCUMENT}" | jq -r '.accountId')
+                  - ''
+                  - export VolumeState=`aws ec2 describe-volumes --region $region --volume-ids $Volume |jq -r .Volumes[].State`
+                  - ''
+                  - export VolumeStatus=`aws ec2 describe-volume-status --region $region --volume-ids $Volume |jq -r .VolumeStatuses[].VolumeStatus.Status`
+                  - ''
+                  - !Sub "export VolumeMount=${VolumeMount}"  
+                  - ''
+                  - if [ "$VolumeStatus" == "ok" ];  then                 
+                  -   for  VolumeState in in-use;
+                  -     do  
+                  -       mkdir -p $VolumeMount;
+                  -       'file -s /dev/nvme1n1  | grep ''/dev/nvme1n1: data'' &> /dev/null'
+                  -         if [ $? == 0 ]; then
+                  -            mkfs -t ext4 /dev/nvme1n1
+                  -            echo Succesfully Created dir >> /var/log/volume_mount.log;
+                  -            sleep 5;
+                  -         fi
+                  -         mount /dev/nvme1n1 /$VolumeMount;
+                  -         echo Succesfully Mounted dir >> /var/log/volume_mount.log;
+                  -         echo  /dev/nvme1n1     $VolumeMount    ext4    defaults,nofail   0   2 >> /etc/fstab;
+                  -   done;
+                  - else
+                  - echo Nothing here;
+                  - fi
+                  - ''                  
+              mode: '000755'
+              owner: root
+              group: root
+          commands:
+            volumemount:
+              command: /usr/local/bin/volumes.sh >> /var/log/volume_mount.log 2>&1
+              ignoreErrors: 'false'        
+    Properties:
+      KeyName: 
+        Fn::Sub:
+        - '${VPCAlias}-base-key-pair'
+        - VPCAlias: !ImportValue VPCAlias
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      ImageId: !Ref ServerAMI
+      InstanceType: !Ref EC2Type
+      PropagateTagsToVolumeOnCreation: true
+      NetworkInterfaces: 
+        - DeleteOnTermination : "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - !ImportValue Vernova-Immutable-Linux-SG
+            - !ImportValue  Vernova-Bastion-SG
+            - !If [ AppSGCondition , !Ref AppSG , !Ref AWS::NoValue]
+            - !If [ AdditionalAppSGCondition, !Ref AWS::NoValue , !Ref AdditionalAppSG ]
+          SubnetId: !ImportValue internal-app-az1
+
+      Tags:
+        - Key: Name
+          Value: !Sub '${UAI}-${AppName}-${AppInstance}-${Env}'
+        - Key: uai
+          Value:
+            Ref: UAI
+        - Key: env
+          Value:
+            Ref: Env
+        - Key: role
+          Value:
+            Ref: AppInstance
+        - Key: patch
+          Value: "yes"
+        - Key: CTOCloudOpsManaged
+          Value: !Ref CTOCloudOpsManaged
+        - Key: AppEnvCfgID
+          Value: !Ref AppEnvCfgID
+        - Key: PatchGroup
+          Value: !FindInMap
+          - PatchGroupMap
+          - !Ref Platform
+          - !Ref Env
+        - Key: MaintenanceSchedule
+          Value: !FindInMap
+          - MaintanceWindow
+          - !Ref Platform
+          - !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+
+      Volumes:
+        - Device: /dev/sdg
+          VolumeId: !Ref AppVolume
+      UserData: 
+        'Fn::Base64':
+          'Fn::Join':
+          - "\n"
+          - - "#!/bin/bash"
+
+            - !Sub "Volume= ${AppVolume}"                        
+            - !Sub "awsregion=${AWS::Region}"
+            - !Sub "Name=${Env}-${AppName}-${AppInstance}"
+            - !Sub "uai=${UAI}"
+            - !Sub "role=${AppInstance}"
+
+            - "export InstanceId=$(curl http://169.254.169.254/latest/meta-data/instance-id)"
+            - "echo 'trying to configure the LDAP Auth'"
+            - ". /etc/os-release"
+            - "echo $ID"
+
+            - if [ "$ID" = "centos" ]  || [ "$ID" = "rhel" ] || [ "$ID" = "amzn" ] || [ "$ID" = "ol" ]; then
+
+            - aws ssm send-command --document-name "arn:aws:ssm:us-east-1:325381443140:document/VN-LDAP-Linux" --parameters NixGroupApp="Test" --targets "Key=instanceids,Values=$InstanceId"
+            - !Sub "/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource AppServer --configsets default --region ${AWS::Region} \n"           
+            # - !Sub "/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AppServer --region ${AWS::Region}"
+
+            - elif [ "$ID" = "ubuntu" ]; then
+
+            - apt-get update -y
+            - apt install python3-pip -y
+            - pip install heat-cfntools
+            - aws ssm send-command --document-name "arn:aws:ssm:us-east-1:325381443140:document/VN-LDAP-Ubuntu" --parameters NixGroupApp="Test" --targets "Key=instanceids,Values=$InstanceId"
+            - !Sub "cfn-init  -s ${AWS::StackName} -r AppServer -c default --region ${AWS::Region} \n"           
+            # - !Sub "cfn-signal -e $? --stack ${AWS::StackName} --resource AppServer --region ${AWS::Region}"
+
+            - apt-get install jq -y
+            - export Volume=`curl http://169.254.169.254/latest/user-data |grep Volume |head -1 |cut -d '=' -f 2`
+            - export InstanceId=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+            - export region=`curl http://169.254.169.254/latest/user-data |grep awsregion |head -1 |cut -d '=' -f 2`
+            - EC2DOCUMENT=$(curl -s -S 'http://169.254.169.254/latest/dynamic/instance-identity/document/')
+            - AWS_ACCOUNT_ID=$(echo "${EC2DOCUMENT}" | jq -r '.accountId')
+            - export VolumeState=`aws ec2 describe-volumes --region $region --volume-ids $Volume |jq -r .Volumes[].State`
+            - export VolumeStatus=`aws ec2 describe-volume-status --region $region --volume-ids $Volume |jq -r .VolumeStatuses[].VolumeStatus.Status`
+            - !Sub "export VolumeMount=${VolumeMount}"  
+            - if [ "$VolumeStatus" == "ok" ];  then                 
+            -   for  VolumeState in in-use;
+            -     do  
+            -       mkdir -p $VolumeMount;
+            -       'file -s /dev/nvme1n1  | grep ''/dev/nvme1n1: data'' &> /dev/null'
+            -         if [ $? == 0 ]; then
+            -            mkfs -t ext4 /dev/nvme1n1
+            -            echo Succesfully Created dir >> /var/log/volume_mount.log;
+            -            sleep 5;
+            -         fi
+            -         mount /dev/nvme1n1 /$VolumeMount;
+            -         echo Succesfully Mounted dir >> /var/log/volume_mount.log;
+            -         echo  /dev/nvme1n1     $VolumeMount    ext4    defaults,nofail   0   2 >> /etc/fstab;
+            -   done;
+            - else
+            - echo Nothing here;
+            - fi
+
+            - else
+
+            - echo "Other OS Found"
+
+            - fi
+
+  AppVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: !ImportValue AZ1Name
+      Size: !Ref VolumeSize
+      VolumeType: gp2
+      Encrypted: true
+      # KmsKeyId: !Ref KmsKeyArn
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${AppName}-${AppInstance}
+        - Key: associate
+          Value: sa
+        - Key: uai
+          Value: !Ref UAI
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+Outputs:
+  InstanceId:
+    Description: Instance ID of the EC2 created
+    Value: !Ref AppServer
+
+  ServerIP:
+    Description: Instance ID of the EC2 created
+    Value: !GetAtt  AppServer.PrivateIp
+
+  
+  AppSecurityGroup:
+      Condition: AppSGCondition
+      Value: !Ref AppSG
+      Description: The SG id of the server

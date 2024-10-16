@@ -1,0 +1,31 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Base RDS security group
+Resources:
+  RDSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: Vernova-Base-RDS-SG
+      GroupDescription: Base RDS security group
+      VpcId: !ImportValue vpcid
+      Tags:
+      - Key: Name
+        Value: Vernova-Base-RDS-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1433
+          ToPort: 5432
+          SourcePrefixListId: !ImportValue Vernova-DataMover-Prefix-List
+        - IpProtocol: tcp
+          FromPort: 8444
+          ToPort: 8445
+          SourcePrefixListId: !ImportValue Vernova-DataMover-Prefix-List
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: "127.0.0.1/32"
+Outputs:
+  RDSSG:
+    Description: Base RDS security group
+    Value: !Ref RDSSG
+    Export:
+      Name: Vernova-Base-RDS-SG

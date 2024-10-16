@@ -1,0 +1,76 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Define a very simplistic SG with no inbound or outbound rules. This is only for enabling the testing of add-sg-egress-rule.cf.yml
+                  Last version from 02-Jun-2021
+
+ # History:::
+  # 02-Jun-2021: Add SecurityGroupEgress.Description
+  # 29-Apr-2020: fix references to !ImportValue VpcId - it is now Fn::ImportValue: !Sub 'vpc:${VPCAlias}:id'
+  # 08-May-2018: initial version
+
+Parameters:
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+  AppName:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: "[a-z0-9\\-]*"
+    Description: AppName, keep to 15 characters or less.
+  AppInstance:
+    Type: String
+    Description: "Which instance of the application. Example: app1-dev. Must be lowercase. Max 14 chars."
+    AllowedPattern: '^[a-z][a-z0-9\._\-]*[a-z0-9]$'
+    ConstraintDescription: "Must contain only lower case letters, digits, '.', '_' or '-'. Min 3 chars. Max 14. Must start with a letter and end with a letter or digit"
+    MinLength: 3
+    # add MaxLength=14 on 11-Sep-2017, so it is consistent with web products
+    MaxLength: 14
+  Role:
+    Type: String
+    Description: What is the purpose of this 'tier' of the application - web/app/db/... Must be lowercase.
+    ConstraintDescription: Must contain only lower case letters and digits. Min 2 characters.
+    MinLength: 2
+    AllowedPattern: "[a-z0-9]*"
+  Env:
+    Type: String
+    Default: dev
+    #AllowedValues: [ 'dev', 'qa', 'prd' ]
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+  VPCAlias:
+    Type: String
+    Default: us1p
+
+Resources:
+  SimpleSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "Test SG for ${Env} ${Role} tier of ${AppInstance} ${UAI}"
+      GroupName: !Sub "app-${UAI}-${AppName}-${AppInstance}-${Env}"
+      VpcId: !ImportValue vpcid
+      Tags:
+        - Key: Name
+          Value: !Sub "${AppInstance}-${UAI}-${Role}-std-SG"
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppInstance
+        - Key: env
+          Value: !Ref Env
+        - Key: role
+          Value: !Ref Role
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+      SecurityGroupIngress: []
+
+      SecurityGroupEgress: []
+
+
+Outputs:
+    SGId:
+        Value: !Ref SimpleSG
+        Description: The SG id

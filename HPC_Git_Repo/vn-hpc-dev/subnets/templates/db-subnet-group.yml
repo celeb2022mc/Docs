@@ -1,0 +1,23 @@
+--- 
+# History:
+  # 03-10-2020 : Initial subnet group Setup
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Resources: 
+  DBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"  
+    Properties: 
+      DBSubnetGroupDescription: Landing Zone Database subnets
+      SubnetIds: 
+      - !ImportValue database-az1
+      - !ImportValue database-az2
+      Tags: 
+        - Key: Name
+          Value: DBSubnetGroup
+Outputs:
+  DBSubnetGroup:
+    Description: RDS Subnet Group
+    Value: !Ref DBSubnetGroup
+    Export:
+      Name: "db-subnetgroup"

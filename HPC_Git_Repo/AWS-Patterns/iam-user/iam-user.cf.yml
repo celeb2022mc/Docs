@@ -1,0 +1,149 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create IAM user 
+
+## History:
+  # 06-Jun-2024: Cleanedup stack Description
+
+Parameters:
+
+  FunctionalUser:
+    Type: String
+
+  UAI:
+    Type: String
+    Description: The UAI of the application being managed.
+    ConstraintDescription: The uai must be valid, but specified as 'uai' in lower case followed by 7 digits
+    AllowedPattern: '^uai[0-9]{7}$'
+
+  AppName:
+    Type: String
+
+  ArtifactBucketPath:
+    Type: String
+
+  Env:
+    Type: String
+    Description: Env instance of the resource.
+    Default: dev
+    AllowedValues: [ 'dev', 'qa', 'prd', 'lab', 'stg', 'dr' ]
+
+Resources:
+
+  User:
+    Type: AWS::IAM::User
+    Properties:
+      Path: !Sub "/app/${UAI}/"
+      UserName: !Ref FunctionalUser
+      Groups:
+        - !Ref Group
+      Tags:
+        - Key: uai
+          Value: !Ref UAI
+
+  UserKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      Serial: 1
+      Status: Active
+      UserName: !Ref User
+
+  Group:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Sub "${AppName}-group-${Env}"
+      Path: !Sub "/app/${UAI}/"
+
+  UserPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub app-${UAI}-${AppName}-common-access-${Env}
+      Groups:
+        - !Ref Group
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: S3WriteOnly
+            Effect: Allow
+            Action:
+              - s3:List*
+              - s3:ListMultipartUploadParts
+              - s3:ListBucketMultipartUploads
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:AbortMultipartUpload
+            Resource:
+              - !Ref "ArtifactBucketPath"
+
+          - Sid: AllowManageOwnUserDetails
+            Effect: Allow
+            Action:
+              - iam:CreateAccessKey
+              - iam:ListAccessKeys
+              - iam:UpdateAccessKey
+            Resource: !GetAtt User.Arn
+
+          - Sid: AllowLogGroups
+            Effect: Allow
+            Action:
+              - logs:DescribeLogGroups
+              - logs:CreateLogGroup
+              - logs:DeleteLogGroup
+              - logs:PutRetentionPolicy
+            Resource: '*'
+
+          - Sid: LambdaUodateFunctionCode
+            Effect: Allow
+            Action:
+              - lambda:UpdateFunctionCode
+            Resource:
+              - !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:app-uai*"
+            Condition:
+              StringLike:
+                lambda:FunctionCodeLocation: !Sub "${ArtifactBucketPath}/*"
+
+
+  SecretsManagerIntegration:
+    Type: AWS::SecretsManager::Secret
+    DependsOn:
+      - User
+      - UserKey
+    Properties:
+      Description: "Secret manger for the storing secrets"
+      Name: !Sub "app-${UAI}/${AppName}/${Env}/credentiials"
+      SecretString: !Sub "AccessKey: ${UserKey} , SecretKey: ${UserKey.SecretAccessKey}"
+      Tags:
+        - Key: Name
+          Value:  !Sub "app-${UAI}/${AppName}/${Env}/credentiials"
+        - Key: uai
+          Value: !Ref UAI
+        - Key: app
+          Value: !Ref AppName
+        - Key: env
+          Value: !Ref Env
+        - Key: Stack_ID
+          Value: !Sub ${AWS::StackId}
+        - Key: Stack_Name
+          Value: !Sub ${AWS::StackName}
+
+  PolicyForSecretsManager:
+    Type: AWS::SecretsManager::ResourcePolicy
+    DependsOn:
+      - SecretsManagerIntegration
+    Properties:
+      BlockPublicPolicy: True
+      SecretId: !Ref SecretsManagerIntegration
+      ResourcePolicy:
+        Version: '2012-10-17'
+        Statement:
+        - 
+          Resource: "*"
+          Action: 
+          - secretsmanager:GetSecretValue
+          - secretsmanager:PutSecretValue
+          Effect: Deny
+          Principal: "*"
+          Condition:
+            StringNotLike:
+              aws:PrincipalArn: !Sub arn:aws:iam::${AWS::AccountId}:role/vn/account-privileged
+              

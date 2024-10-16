@@ -1,0 +1,12 @@
+---
+
+# see README.md for how this is used
+
+- hosts: localhost
+  tasks:
+    - name: Include vars from manifest.yml
+      include_vars: "manifest.yml"
+
+    - name: Creating the CF stack from master_vars
+      include_tasks: cf.yml
+      with_items: "{{ master_vars }}"

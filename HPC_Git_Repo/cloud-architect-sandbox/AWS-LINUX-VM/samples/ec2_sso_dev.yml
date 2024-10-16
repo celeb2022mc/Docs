@@ -1,0 +1,13 @@
+UAI: uai3064620
+AppName: lzinfra
+Env: dev
+AppInstance: lin
+
+VolumeSize: 10
+VolumeMount: /data
+ServerAMI: ami-0287656f6c0c09b8f
+Ec2InstanceProfile: vn-default-ssm-access-profile
+EC2Type: t3.medium
+
+# Patching tag
+Platform: Linux
