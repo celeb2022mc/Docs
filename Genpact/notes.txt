@@ -1,0 +1,14 @@
+$ git branch
+* main
+
+503428074@GJW17WH3E MINGW64 ~/Documents/GEV Confidentail/HPC_Git_Repo/vn-hpc-dev (main)
+$ git checkout -b "503428074_dev"
+Switched to a new branch '503428074_dev'
+
+503428074@GJW17WH3E MINGW64 ~/Documents/GEV Confidentail/HPC_Git_Repo/vn-hpc-dev (503428074_dev)
+$ git branch
+* 503428074_dev
+  main
+
+503428074@GJW17WH3E MINGW64 ~/Documents/GEV Confidentail/HPC_Git_Repo/vn-hpc-dev (503428074_dev)
+$ ls -ltr

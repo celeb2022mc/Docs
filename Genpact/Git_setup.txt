@@ -1,0 +1,41 @@
+$ pwd
+/c/Users/503428074/Documents/GEV Confidentail/HPC_Git_Repo
+
+git init
+git clone https://github.build.ge.com/vernova-cloud-iac/uai3066015-hpc.git
+
+
+#################################################################
+Start ssh-agent as administrator in power shell
+
+PS C:\windows\system32> Get-Service -Name ssh-agent | Set-Service -StartupType Manual
+PS C:\windows\system32> Start-Service ssh-agent
+PS C:\windows\system32> Get-Service -Name ssh-agent
+
+Status   Name               DisplayName
+------   ----               -----------
+Running  ssh-agent          OpenSSH Authentication Agent
+
+
+Generate ssh keys under your user home:
+
+mkdir ~/.ssh
+ssh-keygen -t ed25519 -C "mohanR.chinthala@ge.com"
+
+
+add private key to ssh-agent:
+
+eval `ssh-agent -s`
+$ ssh-add ~/.ssh/id_ed25519
+Identity added: /c/Users/503428074/.ssh/id_ed25519 (mohanR.chinthala@ge.com)
+
+
+Copy the public key in Github
+
+Github --> profile photo -- Settings -- SSH and GPG keys  -- New SSH Key -- Add SSH key
+
+$ cat id_ed25519.pub
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHGPxZtFXTOQbDJDRG44JUN8bQBytwBEFUHYpc+Xvzob mohanR.chinthala@ge.com
+
+
+

@@ -1,0 +1,54 @@
+RE: CloudAD servers
+ 
+To my understanding there are 2 servers in Alpharetta, 2 in Cincinnati, 2 in London and 2 in Amsterdam (not sure which subnets are which DCs)
+It seems we have connectivity to all, so we are good
+ 
+$ nslookup mgmt.cloud.ds.ge.com | grep Address | sort -u | grep -v '\.2#53$' | sed -e 's|Address: ||'
+10.137.34.95
+10.137.34.96
+10.142.1.65
+10.142.1.66
+10.73.58.209
+10.73.58.210
+10.93.58.179
+10.93.58.180
+ 
+$ time for IP in $( nslookup mgmt.cloud.ds.ge.com | grep Address | sort -u | grep -v '\.2#53$' | sed -e 's|Address: ||' ); do echo '' | nc -v -w 3 $IP 636; done
+Ncat: Version 7.92 ( https://nmap.org/ncat )
+Ncat: Connected to 10.137.34.95:636.
+Ncat: Connection reset by peer.
+Ncat: Version 7.92 ( https://nmap.org/ncat )
+Ncat: Connected to 10.137.34.96:636.
+Ncat: Connection reset by peer.
+Ncat: Version 7.92 ( https://nmap.org/ncat )
+Ncat: Connected to 10.142.1.65:636.
+Ncat: Connection reset by peer.
+Ncat: Version 7.92 ( https://nmap.org/ncat )
+Ncat: Connected to 10.142.1.66:636.
+Ncat: Connection reset by peer.
+Ncat: Version 7.92 ( https://nmap.org/ncat )
+Ncat: Connected to 10.73.58.209:636.
+Ncat: Connection reset by peer.
+Ncat: Version 7.92 ( https://nmap.org/ncat )
+Ncat: Connected to 10.73.58.210:636.
+Ncat: Connection reset by peer.
+Ncat: Version 7.92 ( https://nmap.org/ncat )
+Ncat: Connected to 10.93.58.179:636.
+Ncat: Connection reset by peer.
+Ncat: Version 7.92 ( https://nmap.org/ncat )
+Ncat: Connected to 10.93.58.180:636.
+Ncat: Connection reset by peer.
+
+
+
+Actually ICMP seems to be open as well, so it seems the top 4 are in EU, the bottom 4 in US (given this is a VPC in us-east-1)
+$ time for IP in $( nslookup mgmt.cloud.ds.ge.com | grep Address | sort -u | grep -v '\.2#53$' | sed -e 's|Address: ||' ); do echo '' | ping -c 1 $IP; done | grep '64 bytes'
+64 bytes from 10.137.34.95: icmp_seq=1 ttl=113 time=97.2 ms
+64 bytes from 10.137.34.96: icmp_seq=1 ttl=113 time=97.6 ms
+64 bytes from 10.142.1.65: icmp_seq=1 ttl=111 time=104 ms
+64 bytes from 10.142.1.66: icmp_seq=1 ttl=111 time=104 ms
+64 bytes from 10.73.58.209: icmp_seq=1 ttl=113 time=17.7 ms
+64 bytes from 10.73.58.210: icmp_seq=1 ttl=113 time=18.5 ms
+64 bytes from 10.93.58.179: icmp_seq=1 ttl=112 time=15.9 ms
+64 bytes from 10.93.58.180: icmp_seq=1 ttl=112 time=16.3 ms
+ 
